@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台語 SEL 解憂發光罐闖關</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background-color: #fef08a; }
+        .hand-drawn { border: 3px solid #333; border-radius: 255px 15px 225px 15px/15px 225px 15px 255px; }
+        .hand-drawn-btn { border: 2px solid #333; border-radius: 15px 225px 15px 255px/255px 15px 225px 15px; box-shadow: 4px 4px 0px #333; transition: all 0.1s; }
+        .hand-drawn-btn:active { box-shadow: 0px 0px 0px #333; transform: translate(4px, 4px); }
+        .hand-drawn-btn:disabled { opacity: 0.6; box-shadow: none; transform: translate(4px, 4px); cursor: not-allowed; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex items-center justify-center">
+    <div id="root" class="w-full max-w-4xl"></div>
+
+    <script type="text/babel">
+        const { useState, useRef } = React;
+
+        // 🟢 替換成你的 GAS 網址
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxQ59AWJ3QtsDQAiTMmudkjfS97W0hLdD14NXF0m07vNmO7N0NETXeXUtrHAK2YmeBK1g/exec";
+
+        const CASES = {
+            1: { desc: "教室的椅仔歹去，逐家攏講是阿勇挵歹的！", ansEmotion: "受氣", ansMetaphor: "火山欲爆發", words: ["阿勇", "氣甲", "頭殼衝煙，", "若像", "火山欲爆發"] },
+            2: { desc: "認真準備比賽卻沒得名，阿勇感覺足失落。", ansEmotion: "傷心", ansMetaphor: "水道頭流袂停", words: ["阿勇", "傷心甲", "目屎流袂停，", "若像", "水道頭流袂停"] },
+            3: { desc: "明天要上台表演，阿勇一直想會袂記詞。", ansEmotion: "煩惱", ansMetaphor: "暗時睏袂去", words: ["阿勇", "煩惱甲", "輾來輾去，", "若像", "暗時睏袂去"] },
+            4: { desc: "好朋友誤會他，今仔日攏不跟他講話。", ansEmotion: "鬱卒", ansMetaphor: "蔫去的花蕊", words: ["阿勇", "鬱卒甲", "頭犁犁，", "親像", "蔫去的花蕊"] },
+            5: { desc: "行佇暗巷聽到奇怪的聲，阿勇起雞母皮。", ansEmotion: "驚惶", ansMetaphor: "老鼠拄著貓", words: ["阿勇", "驚惶甲", "咇咇掣，", "若像", "老鼠拄著貓"] },
+            6: { desc: "老師準備抽籤叫人唸課文，阿勇的心跳足緊。", ansEmotion: "緊張", ansMetaphor: "熱鼎頂的狗蟻", words: ["阿勇", "緊張甲", "流大汗，", "親像", "熱鼎頂的狗蟻"] }
+        };
+
+        const EMOTIONS = ["傷心", "受氣", "煩惱", "鬱卒", "驚惶", "緊張"];
+        const METAPHORS = ["水道頭流袂停", "火山欲爆發", "暗時睏袂去", "蔫去的花蕊", "老鼠拄著貓", "熱鼎頂的狗蟻"];
+        const SENTENCES = [
+            "歡喜嘛一工，煩惱嘛一工，莫鬱卒，咱永遠是好朋友！",
+            "有代誌愛講，我攏會佇遮陪你，咱做伙加油！",
+            "無代誌，莫想遐濟，快快樂樂過日子啦！",
+            "放予輕鬆，免煩惱，咱做伙向前衝。",
+            "你已經做了足好的矣，莫予家己壓力。",
+            "換一个想法就袂遮艱苦矣，咱做陣拍拚。"
+        ];
+
+        // 輔助函式：將照片或錄音轉成 Base64 字串，這樣才能透過網頁傳給 GAS
+        const blobToBase64 = (blob) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        };
+
+        function App() {
+            const [group, setGroup] = useState(null);
+            const [stage, setStage] = useState(0); 
+
+            // Stage 1
+            const [selEmotion, setSelEmotion] = useState(null);
+            const [selMetaphor, setSelMetaphor] = useState(null);
+
+            // Stage 2
+            const [photoUrl, setPhotoUrl] = useState(null);
+            const [photoFile, setPhotoFile] = useState(null); // 儲存真實的圖片檔案
+            const [isUploading, setIsUploading] = useState(false);
+
+            // Stage 3 
+            const [shuffledWords, setShuffledWords] = useState([]);
+            const [selectedWords, setSelectedWords] = useState([]);
+
+            // Stage 4
+            const [selSentence, setSelSentence] = useState(null);
+            const [isRecording, setIsRecording] = useState(false);
+            const [audioUrl, setAudioUrl] = useState(null);
+            const [audioBlob, setAudioBlob] = useState(null); // 儲存真實的錄音檔案
+            const mediaRecorder = useRef(null);
+            const audioChunks = useRef([]);
+
+            const startGame = (g) => {
+                setGroup(g);
+                setStage(1);
+                const words = [...CASES[g].words].sort(() => Math.random() - 0.5);
+                setShuffledWords(words);
+            };
+
+            const checkStage1 = () => {
+                if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
+                    alert("著啦！進入第二關！");
+                    setStage(2);
+                } else {
+                    alert("選擇好像不太對喔，再討論看看！");
+                }
+            };
+
+            const handlePhotoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    setPhotoFile(file);
+                    setPhotoUrl(URL.createObjectURL(file));
+                }
+            };
+
+            const submitStage2 = async () => {
+                if (!photoFile) return;
+                setIsUploading(true);
+                try {
+                    const base64 = await blobToBase64(photoFile);
+                    const payload = {
+                        stage: 2,
+                        group: group,
+                        mimeType: photoFile.type,
+                        fileBase64: base64
+                    };
+                    
+                    const res = await fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await res.json();
+                    
+                    if(result.status === 'success') {
+                        setStage(3);
+                    } else {
+                        alert("上傳失敗：" + result.message);
+                    }
+                } catch(error) {
+                    alert("連線發生錯誤，請稍後再試！");
+                    console.error(error);
+                }
+                setIsUploading(false);
+            };
+
+            const handleWordClick = (word, isSelected, index) => {
+                if (isSelected) {
+                    setSelectedWords(prev => prev.filter((_, i) => i !== index));
+                    setShuffledWords(prev => [...prev, word]);
+                } else {
+                    setShuffledWords(prev => prev.filter((_, i) => i !== index));
+                    setSelectedWords(prev => [...prev, word]);
+                }
+            };
+
+            const checkStage3 = () => {
+                if (selectedWords.join("") === CASES[group].words.join("")) {
+                    alert("句型重組完全正確！進入最後一關！");
+                    setStage(4);
+                } else {
+                    alert("順序怪怪的喔，請再排一次看看！");
+                    setShuffledWords([...CASES[group].words].sort(() => Math.random() - 0.5));
+                    setSelectedWords([]);
+                }
+            };
+
+            const startRecording = async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder.current = new MediaRecorder(stream);
+                    mediaRecorder.current.ondataavailable = (e) => {
+                        if (e.data.size > 0) audioChunks.current.push(e.data);
+                    };
+                    mediaRecorder.current.onstop = () => {
+                        const blob = new Blob(audioChunks.current, { type: 'audio/webm' });
+                        setAudioBlob(blob);
+                        setAudioUrl(URL.createObjectURL(blob));
+                        audioChunks.current = [];
+                    };
+                    audioChunks.current = [];
+                    mediaRecorder.current.start();
+                    setIsRecording(true);
+                } catch (err) {
+                    alert("無法存取麥克風，請確認權限！");
+                }
+            };
+
+            const stopRecording = () => {
+                if (mediaRecorder.current && isRecording) {
+                    mediaRecorder.current.stop();
+                    setIsRecording(false);
+                }
+            };
+
+            const submitStage4 = async () => {
+                if (!audioBlob) return;
+                setIsUploading(true);
+                try {
+                    const base64 = await blobToBase64(audioBlob);
+                    const payload = {
+                        stage: 4,
+                        group: group,
+                        mimeType: audioBlob.type,
+                        fileBase64: base64
+                    };
+                    
+                    const res = await fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await res.json();
+                    
+                    if(result.status === 'success') {
+                        setStage(5);
+                    } else {
+                        alert("上傳失敗：" + result.message);
+                    }
+                } catch(error) {
+                    alert("連線發生錯誤，請稍後再試！");
+                    console.error(error);
+                }
+                setIsUploading(false);
+            };
+
+            if (stage === 0) {
+                return (
+                    <div className="bg-white p-8 hand-drawn text-center w-full max-w-2xl mx-auto shadow-lg">
+                        <h1 className="text-3xl md:text-4xl font-bold mb-8 text-orange-600">🎒 台語 SEL 解憂闖關</h1>
+                        <p className="mb-6 text-xl">請選擇你們的組別開始挑戰：</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+                            {[1,2,3,4,5,6].map(g => (
+                                <button key={g} onClick={() => startGame(g)} className="hand-drawn-btn bg-blue-200 hover:bg-blue-300 p-4 md:p-6 text-xl md:text-2xl font-bold">
+                                    第 {g} 組
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (stage === 5) {
+                return (
+                    <div className="bg-white p-12 hand-drawn text-center max-w-2xl mx-auto shadow-lg">
+                        <h1 className="text-5xl font-bold mb-6 text-red-500">🎉 任務完成！</h1>
+                        <p className="text-2xl mb-8">請看前面大螢幕的發光罐！</p>
+                        <div className="text-8xl mt-4 animate-bounce">🌟🧡🌟</div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-white p-6 md:p-10 hand-drawn w-full max-w-4xl mx-auto shadow-lg">
+                    <div className="flex justify-between items-center mb-6 border-b-4 border-dashed border-gray-300 pb-4">
+                        <h2 className="text-3xl font-bold text-blue-700">組別 {group} - 第 {stage} 關</h2>
+                    </div>
+
+                    {stage === 1 && (
+                        <div>
+                            <h3 className="text-2xl font-bold mb-6 bg-yellow-200 inline-block px-6 py-3 hand-drawn shadow-sm">
+                                📝 案件描述：{CASES[group].desc}
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+                                <div className="border-4 border-yellow-400 p-6 rounded-2xl bg-yellow-50">
+                                    <h4 className="text-center font-bold text-2xl mb-6 text-yellow-800">選擇情緒</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {EMOTIONS.map(e => (
+                                            <button key={e} onClick={() => setSelEmotion(e)} className={`hand-drawn-btn p-4 text-xl font-bold ${selEmotion === e ? 'bg-yellow-500 text-white' : 'bg-white'}`}>{e}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="border-4 border-blue-400 p-6 rounded-2xl bg-blue-50">
+                                    <h4 className="text-center font-bold text-2xl mb-6 text-blue-800">選擇比喻</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {METAPHORS.map(m => (
+                                            <button key={m} onClick={() => setSelMetaphor(m)} className={`hand-drawn-btn p-4 text-xl font-bold ${selMetaphor === m ? 'bg-blue-500 text-white' : 'bg-white'}`}>{m}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            {selEmotion && selMetaphor && (
+                                <button onClick={checkStage1} className="mt-10 w-full hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold text-white tracking-widest">
+                                    送出答案
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {stage === 2 && (
+                        <div className="text-center">
+                            <h3 className="text-3xl font-bold mb-4">請小組討論欲用佗一个法寶？</h3>
+                            <p className="mb-6 text-xl text-gray-700">請 2 號寫佇實體配方內底，寫好才翕相傳來！</p>
+                            <div className="my-10">
+                                <label className="hand-drawn-btn bg-pink-300 hover:bg-pink-400 p-8 text-3xl font-bold cursor-pointer inline-block shadow-lg">
+                                    📸 開啟相機拍照
+                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload} />
+                                </label>
+                            </div>
+                            {photoUrl && (
+                                <div className="mt-8 bg-gray-100 p-6 rounded-xl hand-drawn">
+                                    <img src={photoUrl} alt="預覽" className="max-w-sm mx-auto border-8 border-white shadow-md transform rotate-2 mb-6" />
+                                    <button onClick={submitStage2} disabled={isUploading} className="hand-drawn-btn bg-green-400 p-6 text-2xl font-bold w-full max-w-sm text-white">
+                                        {isUploading ? "上傳中 ⏳..." : "上傳照片並送出 📤"}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {stage === 3 && (
+                        <div className="text-center">
+                            <h3 className="text-3xl font-bold mb-8">請點擊下方字塊，依序排到上方！</h3>
+                            <div className="min-h-[120px] bg-gray-50 border-4 border-dashed border-gray-400 p-6 mb-8 rounded-2xl flex flex-wrap gap-3 justify-center items-center shadow-inner">
+                                {selectedWords.length === 0 && <span className="text-gray-400 text-xl">請點擊下方字塊排入</span>}
+                                {selectedWords.map((word, idx) => (
+                                    <button key={idx} onClick={() => handleWordClick(word, true, idx)} className="hand-drawn-btn bg-orange-300 px-6 py-3 text-2xl font-bold">{word}</button>
+                                ))}
+                            </div>
+                            <div className="flex flex-wrap gap-4 justify-center mb-10 p-6 bg-blue-50 rounded-2xl hand-drawn border-2">
+                                {shuffledWords.map((word, idx) => (
+                                    <button key={idx} onClick={() => handleWordClick(word, false, idx)} className="hand-drawn-btn bg-blue-200 hover:bg-blue-300 px-6 py-3 text-2xl font-bold">{word}</button>
+                                ))}
+                            </div>
+                            {selectedWords.length === CASES[group].words.length && (
+                                <button onClick={checkStage3} className="hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold w-full text-white tracking-widest">
+                                    檢查順序
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {stage === 4 && (
+                        <div className="text-center">
+                            {!selSentence ? (
+                                <>
+                                    <h3 className="text-3xl font-bold mb-8">請選一句話送予阿勇！</h3>
+                                    <div className="flex flex-col gap-5">
+                                        {SENTENCES.map((s, idx) => (
+                                            <button key={idx} onClick={() => setSelSentence(s)} className="hand-drawn-btn bg-yellow-200 hover:bg-yellow-300 p-6 text-left text-xl font-bold shadow-sm">
+                                                {s}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <button onClick={() => setSelSentence(null)} className="text-blue-600 underline mb-6 text-left w-full text-lg font-bold">← 重新選擇</button>
+                                    <div className="bg-blue-100 p-10 hand-drawn text-4xl font-bold mb-10 leading-relaxed text-blue-900 shadow-sm">
+                                        {selSentence}
+                                    </div>
+                                    <div className="flex flex-col items-center gap-6">
+                                        {!isRecording && !audioUrl && (
+                                            <button onClick={startRecording} className="hand-drawn-btn bg-red-400 hover:bg-red-500 text-white p-8 text-3xl font-bold rounded-full shadow-lg">
+                                                🎤 開始錄音
+                                            </button>
+                                        )}
+                                        {isRecording && (
+                                            <div className="flex flex-col items-center gap-6">
+                                                <span className="text-red-600 font-bold text-2xl animate-pulse bg-red-100 px-6 py-3 rounded-full">
+                                                    🔴 錄音中... 全組一起大聲唸！
+                                                </span>
+                                                <button onClick={stopRecording} className="hand-drawn-btn bg-gray-800 text-white p-8 text-3xl font-bold rounded-full shadow-lg">
+                                                    ⏹️ 停止錄音
+                                                </button>
+                                            </div>
+                                        )}
+                                        {audioUrl && (
+                                            <div className="w-full max-w-lg flex flex-col items-center gap-8 bg-gray-50 p-8 rounded-2xl hand-drawn">
+                                                <audio src={audioUrl} controls className="w-full" />
+                                                <div className="flex gap-6 w-full">
+                                                    <button onClick={() => setAudioUrl(null)} className="hand-drawn-btn bg-yellow-400 p-5 text-2xl font-bold flex-1">
+                                                        🔄 重錄
+                                                    </button>
+                                                    <button onClick={submitStage4} disabled={isUploading} className="hand-drawn-btn bg-green-400 p-5 text-2xl font-bold flex-1 text-white">
+                                                        {isUploading ? "上傳中⏳" : "上傳並送出📤"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
