@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>終極雙模式儀表板 - 教師大螢幕</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background-color: #f8fafc; }
+        .hand-drawn { border: 4px solid #334155; border-radius: 255px 15px 225px 15px/15px 225px 15px 255px; }
+        .hand-drawn-btn { border: 3px solid #334155; border-radius: 15px 225px 15px 255px/255px 15px 225px 15px; box-shadow: 5px 5px 0px #334155; transition: all 0.1s; }
+        .hand-drawn-btn:active { box-shadow: 0px 0px 0px #334155; transform: translate(5px, 5px); }
+        .energy-fill { transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.5s; }
+        .glow { box-shadow: 0 0 25px 10px rgba(250, 204, 21, 0.7); }
+        
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .shake-animation { animation: shake 0.5s; animation-iteration-count: infinite; }
+        
+        @keyframes popOut {
+            0% { transform: scale(0.5); opacity: 0; }
+            80% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .pop-animation { animation: popOut 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center relative">
+    <div id="root" class="w-full max-w-7xl"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // 🌟 請確認這裡是您專屬的 Google Apps Script 網址
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzIdOwg3RByzsO3OqPfrtPEfDlGN_VRIbIciixM1mEoQlzvvT89-zNF_kKeY4WYWINzcg/exec";
+
+        const CopyrightFooter = () => (
+            <div className="fixed bottom-4 right-4 md:right-8 text-slate-500 font-bold text-sm select-none pointer-events-none z-[100] bg-white/80 px-4 py-2 rounded-full hand-drawn border-2 border-slate-300 shadow-sm">
+                🪄 © 2026 王淑滿老師的台語魔法學院 設計開發
+            </div>
+        );
+
+        function App() {
+            const [view, setView] = useState('setup'); 
+            
+            const [mode, setMode] = useState('quest'); 
+            const [groupCount, setGroupCount] = useState(6);
+            const [secretMessage, setSecretMessage] = useState('🎉 恭喜全班獲得：解憂大師稱號！ 🎉');
+            const [dashboardTitle, setDashboardTitle] = useState('王老師的台語課魔法'); 
+            
+            const [stageCount, setStageCount] = useState(4);
+            const [stageNames, setStageNames] = useState(['情', '照', '句', '音', '五']);
+            const [targetScore, setTargetScore] = useState(10);
+
+            const [progress, setProgress] = useState({}); 
+            const [scores, setScores] = useState({});
+            const [media, setMedia] = useState({}); // 儲存各組的檔案網址
+            const [boxUnlocked, setBoxUnlocked] = useState(false);
+            const [isAllDone, setIsAllDone] = useState(false); // 控制手動寶箱按鈕顯示
+            const [showcaseGroup, setShowcaseGroup] = useState(null); // 控制作品展示視窗
+
+            // 進入大螢幕
+            const startDashboard = () => {
+                setBoxUnlocked(false);
+                setIsAllDone(false);
+                setShowcaseGroup(null);
+                setView('dashboard');
+            };
+
+            // 【連線引擎 1】每 3 秒自動去 Google 後台問進度與檔案
+            useEffect(() => {
+                if (view !== 'dashboard') return;
+                let isSubscribed = true;
+
+                const fetchState = async () => {
+                    try {
+                        const res = await fetch(GAS_URL);
+                        const data = await res.json();
+                        if (isSubscribed) {
+                            setProgress(data.progress || {});
+                            setScores(data.scores || {});
+                            setMedia(data.media || {});
+                        }
+                    } catch (e) {
+                        console.error("讀取後台失敗", e);
+                    }
+                };
+
+                fetchState(); 
+                const interval = setInterval(fetchState, 3000);
+
+                return () => {
+                    isSubscribed = false;
+                    clearInterval(interval);
+                };
+            }, [view]);
+
+            // 【連線引擎 2】清空換班並通知後台
+            const resetDashboard = async () => {
+                if(window.confirm('確定要清空所有組別的分數與燈號，迎接下一個班級嗎？')) {
+                    const initProg = {};
+                    const initScores = {};
+                    for(let i = 1; i <= groupCount; i++) {
+                        initProg[i] = Array(stageCount).fill(false);
+                        initScores[i] = 0;
+                    }
+                    setProgress(initProg);
+                    setScores(initScores);
+                    setMedia({});
+                    setBoxUnlocked(false);
+                    setIsAllDone(false);
+                    setShowcaseGroup(null);
+
+                    try {
+                        await fetch(GAS_URL, {
+                            method: 'POST',
+                            body: JSON.stringify({ action: 'reset' })
+                        });
+                    } catch (e) { console.error("重置後台失敗", e); }
+                }
+            };
+
+            // 【連線引擎 3】加扣分並通知後台
+            const changeScore = (groupId, delta) => {
+                let newScore = 0;
+                setScores(prev => {
+                    newScore = Math.max(0, (prev[groupId] || 0) + delta);
+                    return { ...prev, [groupId]: newScore };
+                });
+
+                try {
+                    fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'update_score', group: groupId, delta: delta })
+                    });
+                } catch (e) { console.error("分數上傳失敗", e); }
+            };
+
+            // 【連線引擎 4】手動開關燈並通知後台
+            const toggleProgress = (groupId, stageIdx) => {
+                if (mode !== 'quest') return;
+                
+                let isNowDone = false;
+                setProgress(prev => {
+                    const newProg = { ...prev };
+                    newProg[groupId] = [...(newProg[groupId] || Array(stageCount).fill(false))];
+                    newProg[groupId][stageIdx] = !newProg[groupId][stageIdx];
+                    isNowDone = newProg[groupId][stageIdx];
+                    return newProg;
+                });
+
+                try {
+                    fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'toggle_progress', group: groupId, stageIdx: stageIdx, isDone: isNowDone })
+                    });
+                } catch (e) { console.error("進度上傳失敗", e); }
+            };
+
+            // 全班通關偵測 (改為只設定按鈕出現，不自動跳轉)
+            useEffect(() => {
+                if (view !== 'dashboard') return;
+                
+                let allDone = true;
+                for(let i = 1; i <= groupCount; i++) {
+                    if (mode === 'quest') {
+                        const completed = (progress[i] || []).filter(Boolean).length;
+                        if (completed < stageCount) allDone = false;
+                    } else {
+                        const score = scores[i] || 0;
+                        if (score < targetScore) allDone = false;
+                    }
+                }
+                
+                setIsAllDone(allDone && groupCount > 0);
+            }, [progress, scores, view, mode, groupCount, stageCount, targetScore]);
+
+            // ---- 畫面 1：設定頁面 ----
+            if (view === 'setup') {
+                return (
+                    <div className="w-full flex flex-col items-center pb-16">
+                        <div className="bg-white p-8 md:p-10 hand-drawn text-center w-full max-w-4xl mx-auto shadow-2xl mt-4 relative z-10">
+                            <div className="mb-8">
+                                <input 
+                                    type="text" 
+                                    value={dashboardTitle} 
+                                    onChange={e => setDashboardTitle(e.target.value)}
+                                    className="w-full text-center text-4xl md:text-5xl font-bold text-slate-800 focus:outline-none border-b-4 border-slate-200 focus:border-slate-500 pb-2 bg-transparent transition-colors"
+                                    placeholder="請輸入課程大標題"
+                                />
+                                <p className="text-sm text-slate-400 mt-2">✏️ 點擊上方文字即可修改您的專屬標題</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 text-left">
+                                <div className="flex flex-col gap-4">
+                                    <h2 className="text-2xl font-bold text-slate-700 bg-slate-100 p-3 rounded-xl border-2 border-slate-300">1. 選擇上課模式</h2>
+                                    
+                                    <button onClick={() => setMode('quest')} 
+                                        className={`hand-drawn-btn p-6 flex flex-col items-center gap-2 ${mode === 'quest' ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600'}`}>
+                                        <span className="text-3xl">⚔️ 闖關挑戰模式</span>
+                                        <span className="text-sm font-bold opacity-80">計分板與過關燈號分開 (適用活動)</span>
+                                    </button>
+                                    
+                                    <button onClick={() => setMode('daily')} 
+                                        className={`hand-drawn-btn p-6 flex flex-col items-center gap-2 ${mode === 'daily' ? 'bg-teal-500 text-white' : 'bg-white text-slate-600'}`}>
+                                        <span className="text-3xl">🔋 日常教學模式</span>
+                                        <span className="text-sm font-bold opacity-80">加分直接提升能量瓶 (適用集點)</span>
+                                    </button>
+                                </div>
+
+                                <div className="flex flex-col gap-4">
+                                    <h2 className="text-2xl font-bold text-slate-700 bg-slate-100 p-3 rounded-xl border-2 border-slate-300">2. 基本設定</h2>
+                                    
+                                    <div className="bg-orange-50 p-4 rounded-xl border-2 border-orange-200">
+                                        <label className="font-bold text-lg mb-2 block text-orange-900">分幾組？</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {[2, 3, 4, 5, 6, 7, 8].map(n => (
+                                                <button key={n} onClick={() => setGroupCount(n)}
+                                                    className={`w-12 h-12 text-xl font-bold rounded-xl border-2 border-slate-800 transition-colors ${groupCount === n ? 'bg-orange-500 text-white' : 'bg-white text-slate-700 hover:bg-orange-100'}`}>
+                                                    {n}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-purple-50 p-4 rounded-xl border-2 border-purple-200">
+                                        <label className="font-bold text-lg mb-2 block text-purple-900">全班達標寶箱密語：</label>
+                                        <input type="text" value={secretMessage} onChange={e => setSecretMessage(e.target.value)}
+                                            className="w-full p-3 text-xl font-bold text-slate-800 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-300 transition-shadow" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {mode === 'quest' ? (
+                                <div className="mb-10 text-left bg-indigo-50 p-6 rounded-xl border-4 border-indigo-200 hand-drawn">
+                                    <h2 className="text-2xl font-bold text-indigo-800 mb-4">⚔️ 闖關模式專屬設定</h2>
+                                    <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
+                                        <label className="font-bold text-xl text-indigo-900">有幾關？</label>
+                                        <div className="flex gap-2">
+                                            {[1, 2, 3, 4, 5].map(n => (
+                                                <button key={n} onClick={() => setStageCount(n)}
+                                                    className={`w-12 h-12 text-xl font-bold rounded-xl border-2 border-slate-800 transition-colors ${stageCount === n ? 'bg-indigo-500 text-white' : 'bg-white text-slate-700 hover:bg-indigo-100'}`}>
+                                                    {n}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-4">
+                                        {Array.from({length: stageCount}).map((_, i) => (
+                                            <div key={i} className="flex flex-col items-center">
+                                                <label className="mb-1 font-bold text-slate-600">第{i+1}關</label>
+                                                <input type="text" value={stageNames[i]} onChange={e => {
+                                                    const newNames = [...stageNames];
+                                                    newNames[i] = e.target.value.substring(0, 1);
+                                                    setStageNames(newNames);
+                                                }} className="w-14 h-14 text-center text-2xl font-bold text-slate-800 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-shadow" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mb-10 text-left bg-teal-50 p-6 rounded-xl border-4 border-teal-200 hand-drawn">
+                                    <h2 className="text-2xl font-bold text-teal-800 mb-4">🔋 日常教學模式專屬設定</h2>
+                                    <div className="flex flex-wrap items-center gap-4">
+                                        <label className="font-bold text-xl text-teal-900">目標滿分是幾分？</label>
+                                        <input type="number" value={targetScore} onChange={e => setTargetScore(Number(e.target.value))} min="1"
+                                            className="w-24 p-3 text-3xl text-center font-bold text-slate-800 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-4 focus:ring-teal-300 transition-shadow" />
+                                        <span className="text-lg font-bold text-slate-500">分 (達標即解鎖寶箱)</span>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <button onClick={startDashboard} className="hand-drawn-btn bg-yellow-400 hover:bg-yellow-500 p-6 text-3xl md:text-4xl font-bold text-slate-900 w-full tracking-widest mt-4">
+                                🚀 進入大螢幕
+                            </button>
+                        </div>
+                        <CopyrightFooter />
+                    </div>
+                );
+            }
+
+            // ---- 畫面 2：全班達標寶箱畫面 ----
+            if (view === 'celebration') {
+                return (
+                    <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 overflow-hidden">
+                        <div className="absolute inset-0 opacity-60 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-blue-900 via-slate-900 to-black"></div>
+                        
+                        {!boxUnlocked ? (
+                            <div className="relative z-10 flex flex-col items-center cursor-pointer group" onClick={() => setBoxUnlocked(true)}>
+                                <h1 className="text-4xl md:text-5xl font-bold text-yellow-400 mb-12 animate-pulse drop-shadow-[0_0_15px_rgba(250,204,21,0.8)] text-center px-4">
+                                    ✨ 全班達成目標！✨
+                                </h1>
+                                <div className="text-[120px] md:text-[150px] shake-animation mb-8 group-hover:scale-110 transition-transform duration-300">
+                                    🎁
+                                </div>
+                                <p className="text-2xl md:text-3xl text-white font-bold bg-slate-800/80 px-8 py-4 rounded-full border-2 border-slate-500 shadow-xl group-hover:bg-slate-700 transition-colors">
+                                    👆 老師請點擊解鎖寶箱！
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="relative z-10 flex flex-col items-center pop-animation w-full px-4">
+                                <div className="text-7xl md:text-9xl mb-8 drop-shadow-[0_0_50px_rgba(250,204,21,1)]">
+                                    🔓🌟
+                                </div>
+                                <div className="bg-yellow-100 hand-drawn p-8 md:p-12 w-full max-w-4xl text-center shadow-2xl">
+                                    <h2 className="text-4xl md:text-6xl font-extrabold text-red-600 leading-snug drop-shadow-md break-words">
+                                        {secretMessage}
+                                    </h2>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mt-12">
+                                    <button onClick={resetDashboard} className="hand-drawn-btn bg-red-400 hover:bg-red-500 px-8 py-4 text-xl md:text-2xl font-bold text-white shadow-lg">
+                                        🔄 清空換班
+                                    </button>
+                                    <button onClick={() => setView('setup')} className="hand-drawn-btn bg-slate-200 hover:bg-slate-300 px-8 py-4 text-xl md:text-2xl font-bold text-slate-800 shadow-lg">
+                                        ⚙️ 回到設定
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <CopyrightFooter />
+                    </div>
+                );
+            }
+
+            // ---- 畫面 3：主儀表板 ----
+            return (
+                <div className="w-full pb-24 relative min-h-screen flex flex-col">
+                    
+                    {/* 頂部標題與控制列 */}
+                    <div className="flex flex-col lg:flex-row justify-between items-center mb-8 bg-white p-4 md:p-6 hand-drawn shadow-md gap-4 relative z-10">
+                        <h1 className="text-3xl md:text-4xl font-extrabold flex items-center gap-4 text-slate-800 text-center lg:text-left w-full lg:w-auto break-words">
+                            ✨ {dashboardTitle}
+                        </h1>
+                        
+                        <div className="flex flex-wrap justify-center gap-4 w-full lg:w-auto items-center">
+                            {/* 🌟 老師要求的手動召喚寶箱按鈕 (只有全班達標才會出現) */}
+                            {isAllDone && (
+                                <button onClick={() => setView('celebration')} className="animate-pulse bg-yellow-400 hover:bg-yellow-500 border-4 border-slate-800 rounded-xl px-6 py-3 text-lg md:text-xl font-bold text-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.8)] mr-4">
+                                    🏆 召喚全班寶箱
+                                </button>
+                            )}
+
+                            <button onClick={() => { if(window.confirm('確定要回設定頁嗎？進度會消失喔！')) setView('setup'); }} 
+                                className="hand-drawn-btn bg-slate-200 hover:bg-slate-300 px-6 py-3 text-lg md:text-xl font-bold text-slate-800 whitespace-nowrap">
+                                ⚙️ 返回設定
+                            </button>
+                            <button onClick={resetDashboard} 
+                                className="hand-drawn-btn bg-red-400 hover:bg-red-500 px-6 py-3 text-lg md:text-xl font-bold text-white shadow-md whitespace-nowrap">
+                                🔄 清空換班
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 學生組別網格 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8 flex-grow content-start">
+                        {Array.from({length: groupCount}).map((_, gIdx) => {
+                            const groupId = gIdx + 1;
+                            const score = scores[groupId] || 0;
+                            const groupProg = progress[groupId] || [];
+                            const groupMedia = media[groupId] || {};
+                            
+                            let percentage = 0;
+                            let isAllComplete = false;
+                            
+                            if (mode === 'quest') {
+                                const completed = groupProg.filter(Boolean).length;
+                                percentage = (completed / stageCount) * 100;
+                                isAllComplete = completed === stageCount;
+                            } else {
+                                percentage = Math.min((score / targetScore) * 100, 100);
+                                isAllComplete = score >= targetScore;
+                            }
+
+                            return (
+                                <div key={groupId} className={`bg-white p-6 md:p-8 hand-drawn flex flex-col items-center shadow-xl relative transition-all duration-500 ${isAllComplete ? 'glow border-yellow-400 scale-[1.02]' : 'hover:shadow-2xl'}`}>
+                                    
+                                    {/* 🌟 老師要求的「開箱成果」按鈕 (只要有照片或聲音就會出現) */}
+                                    {(groupMedia.photo || groupMedia.audio) && (
+                                        <button 
+                                            onClick={() => setShowcaseGroup(groupId)}
+                                            className="absolute -top-4 -right-4 bg-indigo-500 text-white font-bold px-4 py-2 rounded-full border-4 border-slate-800 shadow-lg hover:scale-110 transition-transform animate-bounce z-20">
+                                            👁️ 看看作品
+                                        </button>
+                                    )}
+
+                                    <h3 className={`text-2xl md:text-3xl font-extrabold mb-6 px-6 py-2 hand-drawn w-full text-center transition-colors duration-500 ${isAllComplete ? 'bg-yellow-200 text-yellow-900 border-yellow-600' : 'bg-slate-100 text-slate-800'}`}>
+                                        第 {groupId} 組
+                                    </h3>
+                                    
+                                    <div className="flex items-center gap-3 md:gap-4 mb-8 bg-slate-50 p-3 md:p-4 rounded-2xl border-4 border-slate-200 w-full justify-center">
+                                        <button onClick={() => changeScore(groupId, -1)} className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-rose-400 text-white font-bold text-3xl md:text-4xl flex items-center justify-center hover:bg-rose-500 active:scale-90 shadow-md pb-1 transition-transform">-</button>
+                                        <div className="text-5xl md:text-6xl font-black text-slate-800 w-16 md:w-20 text-center select-none">{score}</div>
+                                        <button onClick={() => changeScore(groupId, 1)} className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-emerald-400 text-white font-bold text-3xl md:text-4xl flex items-center justify-center hover:bg-emerald-500 active:scale-90 shadow-md pb-1 transition-transform">+</button>
+                                    </div>
+                                    
+                                    <div className="w-28 h-36 md:w-32 md:h-48 border-4 border-slate-700 rounded-b-[2rem] rounded-t-lg relative flex items-end overflow-hidden bg-slate-100 mb-6 shadow-[inset_0_4px_10px_rgba(0,0,0,0.15)]">
+                                        <div className="absolute top-0 w-full h-4 md:h-5 bg-slate-800 border-b-2 border-slate-600 z-10 shadow-md"></div>
+                                        <div className="absolute top-6 md:top-8 left-2 md:left-3 w-2 md:w-3 h-16 md:h-24 bg-white opacity-50 rounded-full z-10 blur-[1px]"></div>
+                                        
+                                        <div className={`w-full energy-fill relative ${isAllComplete ? 'bg-yellow-400' : (mode === 'quest' ? 'bg-indigo-400' : 'bg-teal-400')}`} style={{ height: `${percentage}%` }}>
+                                            <div className="w-full h-2 md:h-3 bg-white opacity-30 absolute top-0 blur-[1px]"></div>
+                                            {isAllComplete && <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/20"></div>}
+                                        </div>
+                                        
+                                        <div className="absolute inset-0 flex items-center justify-center z-10 font-black text-3xl md:text-4xl text-slate-900 drop-shadow-lg opacity-40 select-none">
+                                            {Math.round(percentage)}%
+                                        </div>
+                                    </div>
+                                    
+                                    {mode === 'quest' && (
+                                        <div className="flex flex-wrap justify-center gap-2 md:gap-3 w-full border-t-4 border-dashed border-slate-200 pt-4 md:pt-6 mt-2">
+                                            {Array.from({length: stageCount}).map((_, sIdx) => {
+                                                const isDone = groupProg[sIdx];
+                                                return (
+                                                    <button 
+                                                        key={sIdx} 
+                                                        onClick={() => toggleProgress(groupId, sIdx)}
+                                                        className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-xl md:text-2xl font-black border-4 transition-all duration-300 transform hover:scale-110
+                                                            ${isDone ? 'bg-yellow-300 border-yellow-500 text-yellow-900 shadow-[0_0_15px_rgba(253,224,71,0.8)]' : 'bg-slate-100 border-slate-300 text-slate-400 hover:border-slate-400'}`}
+                                                    >
+                                                        {stageNames[sIdx]}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* 🌟 魔法作品展示視窗 (Modal) */}
+                    {showcaseGroup && media[showcaseGroup] && (
+                        <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[200] p-4 backdrop-blur-sm">
+                            <div className="bg-white p-6 md:p-10 hand-drawn w-full max-w-5xl max-h-[90vh] overflow-y-auto relative flex flex-col items-center">
+                                
+                                <button 
+                                    onClick={() => setShowcaseGroup(null)}
+                                    className="absolute top-4 right-4 bg-red-400 hover:bg-red-500 text-white font-bold w-12 h-12 rounded-full border-4 border-slate-800 shadow-md text-2xl flex items-center justify-center">
+                                    X
+                                </button>
+                                
+                                <h2 className="text-4xl md:text-5xl font-bold text-slate-800 mb-8 px-8 py-2 bg-yellow-200 hand-drawn">
+                                    第 {showcaseGroup} 組 成果展示
+                                </h2>
+
+                                {media[showcaseGroup].photo && (
+                                    <div className="w-full mb-8 bg-gray-100 p-4 rounded-xl border-4 border-dashed border-gray-300 flex justify-center">
+                                        <img 
+                                            src={media[showcaseGroup].photo} 
+                                            alt={`第 ${showcaseGroup} 組照片`}
+                                            className="max-w-full max-h-[50vh] object-contain border-8 border-white shadow-xl transform rotate-1"
+                                            onError={(e) => { e.target.src = ''; e.target.alt = '圖片載入中或發生錯誤...'; }}
+                                        />
+                                    </div>
+                                )}
+
+                                {media[showcaseGroup].audio && (
+                                    <div className="w-full bg-blue-50 p-6 rounded-2xl hand-drawn flex flex-col items-center gap-4">
+                                        <h3 className="text-2xl font-bold text-blue-800">🗣️ 聽聽看他們的話</h3>
+                                        <audio 
+                                            src={media[showcaseGroup].audio} 
+                                            controls 
+                                            autoPlay={false}
+                                            className="w-full max-w-2xl"
+                                        >
+                                            您的瀏覽器不支援播放聲音檔。
+                                        </audio>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <CopyrightFooter />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
