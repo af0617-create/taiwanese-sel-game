@@ -85,6 +85,18 @@
             });
         };
 
+        // 🚀 通用：通知後台純文字過關
+        const notifyStageComplete = async (stageNum, groupNum) => {
+            try {
+                await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'stage_complete', stage: stageNum, group: groupNum })
+                });
+            } catch (e) {
+                console.error("進度上傳失敗", e);
+            }
+        };
+
         function App() {
             const [group, setGroup] = useState(null);
             const [stage, setStage] = useState(0); 
@@ -116,6 +128,7 @@
             const checkStage1 = () => {
                 if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
                     alert("著啦！進入第二關！");
+                    notifyStageComplete(1, group); // 通知大螢幕亮燈
                     setStage(2);
                 } else {
                     alert("選擇好像不太對喔，再討論看看！");
@@ -137,6 +150,7 @@
                     const compressedBase64 = await compressImage(photoFile);
                     
                     const payload = {
+                        action: 'upload', // 補上 action
                         stage: 2,
                         group: group,
                         mimeType: 'image/jpeg',
@@ -174,6 +188,7 @@
             const checkStage3 = () => {
                 if (selectedWords.join("") === CASES[group].words.join("")) {
                     alert("句型重組完全正確！進入最後一關！");
+                    notifyStageComplete(3, group); // 通知大螢幕亮燈
                     setStage(4);
                 } else {
                     alert("順序怪怪的喔，請再排一次看看！");
@@ -216,6 +231,7 @@
                 try {
                     const base64 = await blobToBase64(audioBlob);
                     const payload = {
+                        action: 'upload', // 補上 action
                         stage: 4,
                         group: group,
                         mimeType: audioBlob.type,
