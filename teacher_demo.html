@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>終極雙模式儀表板 - 教師大螢幕 (純介面展示)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background-color: #f8fafc; }
+        .hand-drawn { border: 4px solid #334155; border-radius: 255px 15px 225px 15px/15px 225px 15px 255px; }
+        .hand-drawn-btn { border: 3px solid #334155; border-radius: 15px 225px 15px 255px/255px 15px 225px 15px; box-shadow: 5px 5px 0px #334155; transition: all 0.1s; }
+        .hand-drawn-btn:active { box-shadow: 0px 0px 0px #334155; transform: translate(5px, 5px); }
+        .energy-fill { transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.5s; }
+        .glow { box-shadow: 0 0 25px 10px rgba(250, 204, 21, 0.7); }
+        
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .shake-animation { animation: shake 0.5s; animation-iteration-count: infinite; }
+        
+        @keyframes popOut {
+            0% { transform: scale(0.5); opacity: 0; }
+            80% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .pop-animation { animation: popOut 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center relative">
+    <div id="root" class="w-full max-w-7xl"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // 🟢 已清空 GAS 網址，純前端展示用
+        const GAS_URL = "";
+
+        const CopyrightFooter = () => (
+            <div className="fixed bottom-4 right-4 md:right-8 text-slate-500 font-bold text-sm select-none pointer-events-none z-[100] bg-white/80 px-4 py-2 rounded-full hand-drawn border-2 border-slate-300 shadow-sm">
+                🪄 © 2026 王淑滿老師的台語魔法學院 設計開發 (版面展示版)
+            </div>
+        );
+
+        function App() {
+            const [view, setView] = useState('setup'); 
+            const [mode, setMode] = useState('quest'); 
+            const [groupCount, setGroupCount] = useState(6);
+            const [secretMessage, setSecretMessage] = useState('🎉 恭喜全班獲得：解憂大師稱號！ 🎉');
+            const [dashboardTitle, setDashboardTitle] = useState('王老師的台語課魔法'); 
+            const [stageCount, setStageCount] = useState(4);
+            const [stageNames, setStageNames] = useState(['情', '照', '句', '音', '五']);
+            const [targetScore, setTargetScore] = useState(10);
+            const [progress, setProgress] = useState({}); 
+            const [scores, setScores] = useState({});
+            const [media, setMedia] = useState({}); 
+            const [boxUnlocked, setBoxUnlocked] = useState(false);
+            const [isAllDone, setIsAllDone] = useState(false); 
+            const [showcaseGroup, setShowcaseGroup] = useState(null); 
+
+            // 進入大螢幕 (模擬預設分數供展示)
+            const startDashboard = () => {
+                setBoxUnlocked(false);
+                setIsAllDone(false);
+                setShowcaseGroup(null);
+                
+                // 產生一些模擬假資料讓畫面豐富
+                const mockProg = {};
+                const mockScores = {};
+                for(let i = 1; i <= groupCount; i++) {
+                    mockProg[i] = Array(stageCount).fill(false);
+                    // 隨機勾選幾個進度
+                    for(let s=0; s<stageCount; s++) {
+                        if(Math.random() > 0.5) mockProg[i][s] = true;
+                    }
+                    mockScores[i] = Math.floor(Math.random() * targetScore);
+                }
+                setProgress(mockProg);
+                setScores(mockScores);
+                setView('dashboard');
+            };
+
+            const resetDashboard = async () => {
+                if(window.confirm('確定要清空所有組別的分數與燈號，迎接下一個班級嗎？')) {
+                    const initProg = {};
+                    const initScores = {};
+                    for(let i = 1; i <= groupCount; i++) {
+                        initProg[i] = Array(stageCount).fill(false);
+                        initScores[i] = 0;
+                    }
+                    setProgress(initProg);
+                    setScores(initScores);
+                    setBoxUnlocked(false);
+                    setIsAllDone(false);
+                    setShowcaseGroup(null);
+                }
+            };
+
+            const changeScore = (groupId, delta) => {
+                setScores(prev => {
+                    return { ...prev, [groupId]: Math.max(0, (prev[groupId] || 0) + delta) };
+                });
+            };
+
+            const toggleProgress = (groupId, stageIdx) => {
+                if (mode !== 'quest') return;
+                setProgress(prev => {
+                    const newProg = { ...prev };
+                    newProg[groupId] = [...(newProg[groupId] || Array(stageCount).fill(false))];
+                    newProg[groupId][stageIdx] = !newProg[groupId][stageIdx];
+                    return newProg;
+                });
+            };
+
+            useEffect(() => {
+                if (view !== 'dashboard') return;
+                let allDone = true;
+                for(let i = 1; i <= groupCount; i++) {
+                    if (mode === 'quest') {
+                        const completed = (progress[i] || []).filter(Boolean).length;
+                        if (completed < stageCount) allDone = false;
+                    } else {
+                        const score = scores[i] || 0;
+                        if (score < targetScore) allDone = false;
+                    }
+                }
+                setIsAllDone(allDone && groupCount > 0);
+            }, [progress, scores, view, mode, groupCount, stageCount, targetScore]);
+
+            if (view === 'setup') {
+                return (
+                    <div className="w-full flex flex-col items-center pb-16">
+                        <div className="mt-4 mb-4 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 w-full max-w-4xl shadow-md font-bold">
+                            💡 溫馨提示：這是供全市教師參考的「純介面展示版」，並未串接後台資料庫，僅供預覽畫面與操作邏輯。
+                        </div>
+                        <div className="bg-white p-8 md:p-10 hand-drawn text-center w-full max-w-4xl mx-auto shadow-2xl relative z-10">
+                            <div className="mb-8">
+                                <input 
+                                    type="text" 
+                                    value={dashboardTitle} 
+                                    onChange={e => setDashboardTitle(e.target.value)}
+                                    className="w-full text-center text-4xl md:text-5xl font-bold text-slate-800 focus:outline-none border-b-4 border-slate-200 focus:border-slate-500 pb-2 bg-transparent transition-colors"
+                                    placeholder="請輸入課程大標題"
+                                />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 text-left">
+                                <div className="flex flex-col gap-4">
+                                    <h2 className="text-2xl font-bold text-slate-700 bg-slate-100 p-3 rounded-xl border-2 border-slate-300">1. 選擇上課模式</h2>
+                                    <button onClick={() => setMode('quest')} className={`hand-drawn-btn p-6 flex flex-col items-center gap-2 ${mode === 'quest' ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600'}`}>
+                                        <span className="text-3xl">⚔️ 闖關挑戰模式</span>
+                                        <span className="text-sm font-bold opacity-80">計分板與過關燈號分開</span>
+                                    </button>
+                                </div>
+                                <div className="flex flex-col gap-4">
+                                    <h2 className="text-2xl font-bold text-slate-700 bg-slate-100 p-3 rounded-xl border-2 border-slate-300">2. 基本設定</h2>
+                                    <div className="bg-orange-50 p-4 rounded-xl border-2 border-orange-200">
+                                        <label className="font-bold text-lg mb-2 block text-orange-900">分幾組？</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {[2, 3, 4, 5, 6].map(n => (
+                                                <button key={n} onClick={() => setGroupCount(n)} className={`w-12 h-12 text-xl font-bold rounded-xl border-2 border-slate-800 transition-colors ${groupCount === n ? 'bg-orange-500 text-white' : 'bg-white text-slate-700 hover:bg-orange-100'}`}>{n}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={startDashboard} className="hand-drawn-btn bg-yellow-400 hover:bg-yellow-500 p-6 text-3xl md:text-4xl font-bold text-slate-900 w-full tracking-widest mt-4">🚀 進入大螢幕 (模擬預覽)</button>
+                        </div>
+                        <CopyrightFooter />
+                    </div>
+                );
+            }
+
+            if (view === 'celebration') {
+                return (
+                    <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 overflow-hidden">
+                        <div className="absolute inset-0 opacity-60 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-blue-900 via-slate-900 to-black"></div>
+                        {!boxUnlocked ? (
+                            <div className="relative z-10 flex flex-col items-center cursor-pointer group" onClick={() => setBoxUnlocked(true)}>
+                                <h1 className="text-4xl md:text-5xl font-bold text-yellow-400 mb-12 animate-pulse drop-shadow-[0_0_15px_rgba(250,204,21,0.8)] text-center px-4">✨ 全班達成目標！✨</h1>
+                                <div className="text-[120px] md:text-[150px] shake-animation mb-8 group-hover:scale-110 transition-transform duration-300">🎁</div>
+                                <p className="text-2xl md:text-3xl text-white font-bold bg-slate-800/80 px-8 py-4 rounded-full border-2 border-slate-500 shadow-xl group-hover:bg-slate-700 transition-colors">👆 老師請點擊解鎖寶箱！</p>
+                            </div>
+                        ) : (
+                            <div className="relative z-10 flex flex-col items-center pop-animation w-full px-4">
+                                <div className="text-7xl md:text-9xl mb-8 drop-shadow-[0_0_50px_rgba(250,204,21,1)]">🔓🌟</div>
+                                <div className="bg-yellow-100 hand-drawn p-8 md:p-12 w-full max-w-4xl text-center shadow-2xl">
+                                    <h2 className="text-4xl md:text-6xl font-extrabold text-red-600 leading-snug drop-shadow-md break-words">{secretMessage}</h2>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mt-12">
+                                    <button onClick={() => setView('setup')} className="hand-drawn-btn bg-slate-200 hover:bg-slate-300 px-8 py-4 text-xl md:text-2xl font-bold text-slate-800 shadow-lg">⚙️ 回到設定</button>
+                                </div>
+                            </div>
+                        )}
+                        <CopyrightFooter />
+                    </div>
+                );
+            }
+
+            return (
+                <div className="w-full pb-24 relative min-h-screen flex flex-col">
+                    <div className="flex flex-col lg:flex-row justify-between items-center mb-8 bg-white p-4 md:p-6 hand-drawn shadow-md gap-4 relative z-10">
+                        <h1 className="text-3xl md:text-4xl font-extrabold flex items-center gap-4 text-slate-800 text-center lg:text-left w-full lg:w-auto break-words">✨ {dashboardTitle}</h1>
+                        <div className="flex flex-wrap justify-center gap-4 w-full lg:w-auto items-center">
+                            {isAllDone && (
+                                <button onClick={() => setView('celebration')} className="animate-pulse bg-yellow-400 hover:bg-yellow-500 border-4 border-slate-800 rounded-xl px-6 py-3 text-lg md:text-xl font-bold text-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.8)] mr-4">🏆 召喚全班寶箱</button>
+                            )}
+                            <button onClick={() => setView('setup')} className="hand-drawn-btn bg-slate-200 hover:bg-slate-300 px-6 py-3 text-lg md:text-xl font-bold text-slate-800 whitespace-nowrap">⚙️ 返回設定</button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8 flex-grow content-start">
+                        {Array.from({length: groupCount}).map((_, gIdx) => {
+                            const groupId = gIdx + 1;
+                            const score = scores[groupId] || 0;
+                            const groupProg = progress[groupId] || [];
+                            let percentage = 0;
+                            let isAllComplete = false;
+                            
+                            if (mode === 'quest') {
+                                const completed = groupProg.filter(Boolean).length;
+                                percentage = (completed / stageCount) * 100;
+                                isAllComplete = completed === stageCount;
+                            } else {
+                                percentage = Math.min((score / targetScore) * 100, 100);
+                                isAllComplete = score >= targetScore;
+                            }
+
+                            return (
+                                <div key={groupId} className={`bg-white p-6 md:p-8 hand-drawn flex flex-col items-center shadow-xl relative transition-all duration-500 ${isAllComplete ? 'glow border-yellow-400 scale-[1.02]' : 'hover:shadow-2xl'}`}>
+                                    <h3 className={`text-2xl md:text-3xl font-extrabold mb-6 px-6 py-2 hand-drawn w-full text-center transition-colors duration-500 ${isAllComplete ? 'bg-yellow-200 text-yellow-900 border-yellow-600' : 'bg-slate-100 text-slate-800'}`}>第 {groupId} 組</h3>
+                                    
+                                    <div className="flex items-center gap-3 md:gap-4 mb-8 bg-slate-50 p-3 md:p-4 rounded-2xl border-4 border-slate-200 w-full justify-center">
+                                        <button onClick={() => changeScore(groupId, -1)} className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-rose-400 text-white font-bold text-3xl md:text-4xl flex items-center justify-center hover:bg-rose-500 active:scale-90 shadow-md pb-1 transition-transform">-</button>
+                                        <div className="text-5xl md:text-6xl font-black text-slate-800 w-16 md:w-20 text-center select-none">{score}</div>
+                                        <button onClick={() => changeScore(groupId, 1)} className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-emerald-400 text-white font-bold text-3xl md:text-4xl flex items-center justify-center hover:bg-emerald-500 active:scale-90 shadow-md pb-1 transition-transform">+</button>
+                                    </div>
+                                    
+                                    <div className="w-28 h-36 md:w-32 md:h-48 border-4 border-slate-700 rounded-b-[2rem] rounded-t-lg relative flex items-end overflow-hidden bg-slate-100 mb-6 shadow-[inset_0_4px_10px_rgba(0,0,0,0.15)]">
+                                        <div className="absolute top-0 w-full h-4 md:h-5 bg-slate-800 border-b-2 border-slate-600 z-10 shadow-md"></div>
+                                        <div className="absolute top-6 md:top-8 left-2 md:left-3 w-2 md:w-3 h-16 md:h-24 bg-white opacity-50 rounded-full z-10 blur-[1px]"></div>
+                                        <div className={`w-full energy-fill relative ${isAllComplete ? 'bg-yellow-400' : 'bg-indigo-400'}`} style={{ height: `${percentage}%` }}>
+                                            <div className="w-full h-2 md:h-3 bg-white opacity-30 absolute top-0 blur-[1px]"></div>
+                                            {isAllComplete && <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/20"></div>}
+                                        </div>
+                                        <div className="absolute inset-0 flex items-center justify-center z-10 font-black text-3xl md:text-4xl text-slate-900 drop-shadow-lg opacity-40 select-none">{Math.round(percentage)}%</div>
+                                    </div>
+                                    
+                                    {mode === 'quest' && (
+                                        <div className="flex flex-wrap justify-center gap-2 md:gap-3 w-full border-t-4 border-dashed border-slate-200 pt-4 md:pt-6 mt-2">
+                                            {Array.from({length: stageCount}).map((_, sIdx) => {
+                                                const isDone = groupProg[sIdx];
+                                                return (
+                                                    <button key={sIdx} onClick={() => toggleProgress(groupId, sIdx)} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-xl md:text-2xl font-black border-4 transition-all duration-300 transform hover:scale-110 ${isDone ? 'bg-yellow-300 border-yellow-500 text-yellow-900 shadow-[0_0_15px_rgba(253,224,71,0.8)]' : 'bg-slate-100 border-slate-300 text-slate-400 hover:border-slate-400'}`}>{stageNames[sIdx]}</button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <CopyrightFooter />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
