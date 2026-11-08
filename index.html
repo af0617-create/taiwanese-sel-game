@@ -129,50 +129,10 @@
                 if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
                     alert("著啦！進入第二關！");
                     notifyStageComplete(1, group); // 通知大螢幕亮燈
-                    setStage(2);
+                    setStage(2); // 💡 原本是跳拍照，現在改為跳句型
                 } else {
                     alert("選擇好像不太對喔，再討論看看！");
                 }
-            };
-
-            const handlePhotoUpload = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    setPhotoFile(file);
-                    setPhotoUrl(URL.createObjectURL(file));
-                }
-            };
-
-            const submitStage2 = async () => {
-                if (!photoFile) return;
-                setIsUploading(true);
-                try {
-                    const compressedBase64 = await compressImage(photoFile);
-                    
-                    const payload = {
-                        action: 'upload', // 補上 action
-                        stage: 2,
-                        group: group,
-                        mimeType: 'image/jpeg',
-                        fileBase64: compressedBase64
-                    };
-                    
-                    const res = await fetch(GAS_URL, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    const result = await res.json();
-                    
-                    if(result.status === 'success') {
-                        setStage(3);
-                    } else {
-                        alert("上傳失敗：" + result.message);
-                    }
-                } catch(error) {
-                    alert("連線發生錯誤，請稍後再試！");
-                    console.error(error);
-                }
-                setIsUploading(false);
             };
 
             const handleWordClick = (word, isSelected, index) => {
@@ -185,16 +145,56 @@
                 }
             };
 
-            const checkStage3 = () => {
+            const checkStage2 = () => { // 💡 原本的 checkStage3
                 if (selectedWords.join("") === CASES[group].words.join("")) {
-                    alert("句型重組完全正確！進入最後一關！");
-                    notifyStageComplete(3, group); // 通知大螢幕亮燈
-                    setStage(4);
+                    alert("句型重組完全正確！進入第三關！");
+                    notifyStageComplete(2, group); // 通知大螢幕亮第 2 顆燈
+                    setStage(3); // 💡 改為跳拍照
                 } else {
                     alert("順序怪怪的喔，請再排一次看看！");
                     setShuffledWords([...CASES[group].words].sort(() => Math.random() - 0.5));
                     setSelectedWords([]);
                 }
+            };
+
+            const handlePhotoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    setPhotoFile(file);
+                    setPhotoUrl(URL.createObjectURL(file));
+                }
+            };
+
+            const submitStage3 = async () => { // 💡 原本的 submitStage2
+                if (!photoFile) return;
+                setIsUploading(true);
+                try {
+                    const compressedBase64 = await compressImage(photoFile);
+                    
+                    const payload = {
+                        action: 'upload', 
+                        stage: 3, // 💡 改為傳送 stage 3
+                        group: group,
+                        mimeType: 'image/jpeg',
+                        fileBase64: compressedBase64
+                    };
+                    
+                    const res = await fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await res.json();
+                    
+                    if(result.status === 'success') {
+                        setStage(4);
+                    } else {
+                        alert("上傳失敗：" + result.message);
+                    }
+                } catch(error) {
+                    alert("連線發生錯誤，請稍後再試！");
+                    console.error(error);
+                }
+                setIsUploading(false);
             };
 
             const startRecording = async () => {
@@ -231,7 +231,7 @@
                 try {
                     const base64 = await blobToBase64(audioBlob);
                     const payload = {
-                        action: 'upload', // 補上 action
+                        action: 'upload', 
                         stage: 4,
                         group: group,
                         mimeType: audioBlob.type,
@@ -319,28 +319,8 @@
                         </div>
                     )}
 
+                    {/* 💡 第 2 關現在是 句型重組 */}
                     {stage === 2 && (
-                        <div className="text-center">
-                            <h3 className="text-3xl font-bold mb-4">請小組討論欲用佗一个法寶？</h3>
-                            <p className="mb-6 text-xl text-gray-700">請 2 號寫佇實體配方內底，寫好才翕相傳來！</p>
-                            <div className="my-10">
-                                <label className="hand-drawn-btn bg-pink-300 hover:bg-pink-400 p-8 text-3xl font-bold cursor-pointer inline-block shadow-lg">
-                                    📸 點擊選擇照片或拍照
-                                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                                </label>
-                            </div>
-                            {photoUrl && (
-                                <div className="mt-8 bg-gray-100 p-6 rounded-xl hand-drawn">
-                                    <img src={photoUrl} alt="預覽" className="max-w-sm mx-auto border-8 border-white shadow-md transform rotate-2 mb-6" />
-                                    <button onClick={submitStage2} disabled={isUploading} className="hand-drawn-btn bg-green-400 p-6 text-2xl font-bold w-full max-w-sm text-white">
-                                        {isUploading ? "圖片壓縮與上傳中 ⏳..." : "上傳照片並送出 📤"}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {stage === 3 && (
                         <div className="text-center">
                             <h3 className="text-3xl font-bold mb-8">請點擊下方字塊，依序排到上方！</h3>
                             <div className="min-h-[120px] bg-gray-50 border-4 border-dashed border-gray-400 p-6 mb-8 rounded-2xl flex flex-wrap gap-3 justify-center items-center shadow-inner">
@@ -355,9 +335,31 @@
                                 ))}
                             </div>
                             {selectedWords.length === CASES[group].words.length && (
-                                <button onClick={checkStage3} className="hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold w-full text-white tracking-widest">
+                                <button onClick={checkStage2} className="hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold w-full text-white tracking-widest">
                                     檢查順序
                                 </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 💡 第 3 關現在是 拍照上傳 */}
+                    {stage === 3 && (
+                        <div className="text-center">
+                            <h3 className="text-3xl font-bold mb-4">請小組討論欲用佗一个法寶？</h3>
+                            <p className="mb-6 text-xl text-gray-700">請 2 號寫佇實體配方內底，寫好才翕相傳來！</p>
+                            <div className="my-10">
+                                <label className="hand-drawn-btn bg-pink-300 hover:bg-pink-400 p-8 text-3xl font-bold cursor-pointer inline-block shadow-lg">
+                                    📸 點擊選擇照片或拍照
+                                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                                </label>
+                            </div>
+                            {photoUrl && (
+                                <div className="mt-8 bg-gray-100 p-6 rounded-xl hand-drawn">
+                                    <img src={photoUrl} alt="預覽" className="max-w-sm mx-auto border-8 border-white shadow-md transform rotate-2 mb-6" />
+                                    <button onClick={submitStage3} disabled={isUploading} className="hand-drawn-btn bg-green-400 p-6 text-2xl font-bold w-full max-w-sm text-white">
+                                        {isUploading ? "圖片壓縮與上傳中 ⏳..." : "上傳照片並送出 📤"}
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}
