@@ -22,10 +22,9 @@
     <script type="text/babel">
         const { useState, useRef } = React;
 
-        // 🟢 最新的 GAS 網址
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzIdOwg3RByzsO3OqPfrtPEfDlGN_VRIbIciixM1mEoQlzvvT89-zNF_kKeY4WYWINzcg/exec";
 
-     const CASES = {
+        const CASES = {
             1: { desc: "下課拍籃球的時，對手明明犯規閣毋認數，顛倒怪阿勇...！", ansEmotion: "受氣", ansMetaphor: "欲爆炸的炸彈", words: ["阿勇", "氣甲", "頭殼衝煙，", "若像", "欲爆炸的炸彈"] },
             2: { desc: "上好的同學欲轉去別个學校，以後無法度定定做伙耍矣...", ansEmotion: "傷心", ansMetaphor: "斷線的真珠", words: ["阿勇", "傷心甲", "目屎直直流，", "親像", "斷線的真珠"] },
             3: { desc: "兩个上好的同學冤家，攏叫阿勇莫佮對方講話，阿勇毋知欲按怎做才好..", ansEmotion: "煩惱", ansMetaphor: "鼎底咧煎魚", words: ["阿勇", "煩惱甲", "暗時睏袂去，", "若像", "鼎底咧煎魚"] },
@@ -40,11 +39,12 @@
         const SENTENCES = [
             "歡喜嘛一工，煩惱嘛一工，莫鬱卒，咱永遠是好朋友！",
             "有代誌愛講，阮攏會佇遮陪你，咱做伙加油！",
-            "莫驚莫驚，有阮佇遮，阮會做伙保護你！", 
+            "莫驚莫驚，有阮佇遮，阮會做伙保護你！",
             "放予輕鬆，免煩惱，咱做伙向前衝。",
             "你已經做了足好的矣！莫予家己壓力。",
             "換一个想法就袂遮艱苦矣，咱做陣拍拚。"
         ];
+
         // 輔助函式：錄音檔轉 Base64
         const blobToBase64 = (blob) => {
             return new Promise((resolve, reject) => {
@@ -128,8 +128,8 @@
             const checkStage1 = () => {
                 if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
                     alert("著啦！進入第二關！");
-                    notifyStageComplete(1, group); // 通知大螢幕亮燈
-                    setStage(2); // 💡 原本是跳拍照，現在改為跳句型
+                    notifyStageComplete(1, group);
+                    setStage(2);
                 } else {
                     alert("選擇好像不太對喔，再討論看看！");
                 }
@@ -145,11 +145,11 @@
                 }
             };
 
-            const checkStage2 = () => { // 💡 原本的 checkStage3
+            const checkStage2 = () => {
                 if (selectedWords.join("") === CASES[group].words.join("")) {
                     alert("句型重組完全正確！進入第三關！");
-                    notifyStageComplete(2, group); // 通知大螢幕亮第 2 顆燈
-                    setStage(3); // 💡 改為跳拍照
+                    notifyStageComplete(2, group);
+                    setStage(3);
                 } else {
                     alert("順序怪怪的喔，請再排一次看看！");
                     setShuffledWords([...CASES[group].words].sort(() => Math.random() - 0.5));
@@ -165,7 +165,7 @@
                 }
             };
 
-            const submitStage3 = async () => { // 💡 原本的 submitStage2
+            const submitStage3 = async () => {
                 if (!photoFile) return;
                 setIsUploading(true);
                 try {
@@ -173,7 +173,7 @@
                     
                     const payload = {
                         action: 'upload', 
-                        stage: 3, // 💡 改為傳送 stage 3
+                        stage: 3,
                         group: group,
                         mimeType: 'image/jpeg',
                         fileBase64: compressedBase64
@@ -319,7 +319,6 @@
                         </div>
                     )}
 
-                    {/* 💡 第 2 關現在是 句型重組 */}
                     {stage === 2 && (
                         <div className="text-center">
                             <h3 className="text-3xl font-bold mb-8">請點擊下方字塊，依序排到上方！</h3>
@@ -342,7 +341,6 @@
                         </div>
                     )}
 
-                    {/* 💡 第 3 關現在是 拍照上傳 */}
                     {stage === 3 && (
                         <div className="text-center">
                             <h3 className="text-3xl font-bold mb-4">請小組討論欲用佗一个法寶？</h3>
