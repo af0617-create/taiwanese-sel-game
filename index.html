@@ -47,6 +47,57 @@
 
         const STORAGE_KEY = "ayong_sel_game_state_v1";
 
+        // 🎙️ 標準 16kHz 單聲道 WAV 編碼器（具備完整音長標頭，Google Drive 可正確顯示秒數與播放）
+        const encodeWAV = (samples, sampleRate) => {
+            const buffer = new ArrayBuffer(44 + samples.length * 2);
+            const view = new DataView(buffer);
+            const writeString = (offset, str) => {
+                for (let i = 0; i < str.length; i++) {
+                    view.setUint8(offset + i, str.charCodeAt(i));
+                }
+            };
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, 1, true); // Mono
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+            let offset = 44;
+            for (let i = 0; i < samples.length; i++, offset += 2) {
+                const s = Math.max(-1, Math.min(1, samples[i]));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+            return new Blob([view], { type: 'audio/wav' });
+        };
+
+        const downsampleBuffer = (buffer, inputRate, targetRate = 16000) => {
+            if (targetRate >= inputRate) return buffer;
+            const ratio = inputRate / targetRate;
+            const newLength = Math.round(buffer.length / ratio);
+            const result = new Float32Array(newLength);
+            let offsetResult = 0;
+            let offsetBuffer = 0;
+            while (offsetResult < result.length) {
+                const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+                let accum = 0, count = 0;
+                for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+                    accum += buffer[i];
+                    count++;
+                }
+                result[offsetResult] = count > 0 ? accum / count : 0;
+                offsetResult++;
+                offsetBuffer = nextOffsetBuffer;
+            }
+            return result;
+        };
+
         const blobToBase64 = (blob) => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -169,8 +220,11 @@
             const [isRecording, setIsRecording] = useState(false);
             const [audioUrl, setAudioUrl] = useState(null);
             const [audioBlob, setAudioBlob] = useState(null); 
-            const mediaRecorder = useRef(null);
-            const audioChunks = useRef([]);
+            const audioCtxRef = useRef(null);
+            const mediaStreamRef = useRef(null);
+            const scriptProcessorRef = useRef(null);
+            const pcmChunksRef = useRef([]);
+            const inputSampleRateRef = useRef(44100);
 
             useEffect(() => {
                 try {
@@ -309,30 +363,77 @@
 
             const startRecording = async () => {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder.current = new MediaRecorder(stream);
-                    mediaRecorder.current.ondataavailable = (e) => {
-                        if (e.data.size > 0) audioChunks.current.push(e.data);
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            channelCount: 1
+                        }
+                    });
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    const audioCtx = new AudioCtx();
+                    if (audioCtx.state === 'suspended') {
+                        await audioCtx.resume();
+                    }
+                    inputSampleRateRef.current = audioCtx.sampleRate || 44100;
+                    const source = audioCtx.createMediaStreamSource(stream);
+                    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+                    pcmChunksRef.current = [];
+                    processor.onaudioprocess = (e) => {
+                        const channelData = e.inputBuffer.getChannelData(0);
+                        pcmChunksRef.current.push(new Float32Array(channelData));
                     };
-                    mediaRecorder.current.onstop = () => {
-                        const blob = new Blob(audioChunks.current, { type: 'audio/webm' });
-                        setAudioBlob(blob);
-                        setAudioUrl(URL.createObjectURL(blob));
-                        audioChunks.current = [];
-                        stream.getTracks().forEach(track => track.stop());
-                    };
-                    audioChunks.current = [];
-                    mediaRecorder.current.start();
+
+                    source.connect(processor);
+                    processor.connect(audioCtx.destination);
+
+                    audioCtxRef.current = audioCtx;
+                    mediaStreamRef.current = stream;
+                    scriptProcessorRef.current = processor;
                     setIsRecording(true);
                 } catch (err) {
                     alert("無法存取麥克風，請確認權限！");
+                    console.error(err);
                 }
             };
 
             const stopRecording = () => {
-                if (mediaRecorder.current && isRecording) {
-                    mediaRecorder.current.stop();
-                    setIsRecording(false);
+                if (!isRecording) return;
+                setIsRecording(false);
+                try {
+                    if (scriptProcessorRef.current) {
+                        scriptProcessorRef.current.disconnect();
+                        scriptProcessorRef.current.onaudioprocess = null;
+                        scriptProcessorRef.current = null;
+                    }
+                    if (mediaStreamRef.current) {
+                        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+                        mediaStreamRef.current = null;
+                    }
+                    if (audioCtxRef.current) {
+                        audioCtxRef.current.close().catch(() => {});
+                        audioCtxRef.current = null;
+                    }
+
+                    const chunks = pcmChunksRef.current;
+                    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+                    const merged = new Float32Array(totalLen);
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        merged.set(chunk, offset);
+                        offset += chunk.length;
+                    }
+                    pcmChunksRef.current = [];
+
+                    const targetRate = 16000;
+                    const downsampled = downsampleBuffer(merged, inputSampleRateRef.current, targetRate);
+                    const wavBlob = encodeWAV(downsampled, targetRate);
+                    setAudioBlob(wavBlob);
+                    setAudioUrl(URL.createObjectURL(wavBlob));
+                } catch (err) {
+                    alert("錄音整理失敗，請再試一次！");
+                    console.error(err);
                 }
             };
 
@@ -345,13 +446,14 @@
                         action: 'upload', 
                         stage: 4,
                         group: Number(group),
-                        mimeType: audioBlob.type || 'audio/webm',
+                        mimeType: 'audio/wav',
                         fileBase64: base64
                     };
-                    const result = await postToGAS(payload);
+                    const [result] = await Promise.all([
+                        postToGAS(payload),
+                        notifyStageComplete(4, group)
+                    ]);
                     if (result.status === 'success') {
-                        // 雙重保險：確保後台第 4 關燈號也確實點亮
-                        await notifyStageComplete(4, group);
                         localStorage.removeItem(STORAGE_KEY);
                         setStage(5);
                     } else {
