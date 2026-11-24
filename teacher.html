@@ -164,13 +164,16 @@
                 setBoxUnlocked(true);
             };
 
+            // 【連線引擎】加上防快取參數，確保即時同步第 3、4 關燈號與作品
             useEffect(() => {
                 if (view !== 'dashboard') return;
                 let isSubscribed = true;
 
                 const fetchState = async () => {
                     try {
-                        const res = await fetch(GAS_URL);
+                        const res = await fetch(`${GAS_URL}?t=${Date.now()}`, {
+                            cache: 'no-store'
+                        });
                         const data = await res.json();
                         if (isSubscribed) {
                             setProgress(data.progress || {});
@@ -207,7 +210,12 @@
                     setShowcaseGroup(null);
 
                     try {
-                        await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'reset' }) });
+                        await fetch(GAS_URL, {
+                            method: 'POST',
+                            redirect: 'follow',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: JSON.stringify({ action: 'reset' })
+                        });
                     } catch (e) { console.error("重置後台失敗", e); }
                 }
             };
@@ -219,7 +227,12 @@
                     return { ...prev, [groupId]: newScore };
                 });
                 try {
-                    fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'update_score', group: groupId, delta: delta }) });
+                    fetch(GAS_URL, {
+                        method: 'POST',
+                        redirect: 'follow',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'update_score', group: groupId, delta: delta })
+                    });
                 } catch (e) {}
             };
 
@@ -228,14 +241,20 @@
                 let isNowDone = false;
                 setProgress(prev => {
                     const newProg = { ...prev };
-                    newProg[groupId] = [...(newProg[groupId] || Array(stageCount).fill(false))];
+                    const curArr = newProg[groupId] || newProg[String(groupId)] || Array(stageCount).fill(false);
+                    newProg[groupId] = [...curArr];
                     newProg[groupId][stageIdx] = !newProg[groupId][stageIdx];
                     isNowDone = newProg[groupId][stageIdx];
                     if (isNowDone) playStageChimeSound();
                     return newProg;
                 });
                 try {
-                    fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'toggle_progress', group: groupId, stageIdx: stageIdx, isDone: isNowDone }) });
+                    fetch(GAS_URL, {
+                        method: 'POST',
+                        redirect: 'follow',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'toggle_progress', group: groupId, stageIdx: stageIdx, isDone: isNowDone })
+                    });
                 } catch (e) {}
             };
 
@@ -244,10 +263,11 @@
                 let allDone = true;
                 for(let i = 1; i <= groupCount; i++) {
                     if (mode === 'quest') {
-                        const completed = (progress[i] || []).filter(Boolean).length;
+                        const grpProg = progress[i] || progress[String(i)] || [];
+                        const completed = grpProg.filter(Boolean).length;
                         if (completed < stageCount) allDone = false;
                     } else {
-                        const score = scores[i] || 0;
+                        const score = scores[i] ?? scores[String(i)] ?? 0;
                         if (score < targetScore) allDone = false;
                     }
                 }
@@ -256,7 +276,7 @@
 
             const getFileId = (url) => {
                 if (!url) return null;
-                const match = url.match(/id=([^&]+)/);
+                const match = url.match(/id=([^&]+)/) || url.match(/\/d\/([^/]+)/);
                 return match ? match[1] : null;
             };
 
@@ -404,12 +424,13 @@
                         </div>
                     </div>
 
-                    <div className={`grid ${getGridColsClass(groupCount)} gap-3 md:gap-4 flex-1 min-h-0 pt-4 pb-1 items-stretch`}>
+                    <div className={`grid ${getGridColsClass(groupCount)} gap-3 md:gap-4 flex-1 min-h-0 pt-5 pb-1 items-stretch`}>
                         {Array.from({length: groupCount}).map((_, gIdx) => {
                             const groupId = gIdx + 1;
-                            const score = scores[groupId] || 0;
-                            const groupProg = progress[groupId] || [];
-                            const groupMedia = media[groupId] || {};
+                            const score = scores[groupId] ?? scores[String(groupId)] ?? 0;
+                            const groupProg = progress[groupId] || progress[String(groupId)] || [];
+                            const groupMedia = media[groupId] || media[String(groupId)] || {};
+                            const hasMedia = Boolean(groupMedia.photo || groupMedia.audio || groupMedia.image || groupMedia.url);
                             let percentage = 0;
                             let isAllComplete = false;
                             
@@ -424,8 +445,8 @@
 
                             return (
                                 <div key={groupId} className={`bg-white px-2.5 py-3 md:px-3.5 md:py-3.5 hand-drawn flex flex-col items-center justify-between shadow-lg relative transition-all duration-500 min-h-0 ${isAllComplete ? 'glow border-yellow-400' : 'hover:shadow-xl'}`}>
-                                    {(groupMedia.photo || groupMedia.audio) && (
-                                        <button onClick={() => setShowcaseGroup(groupId)} className="absolute -top-3.5 right-1 bg-indigo-600 text-white font-bold px-2.5 py-1 text-xs md:text-sm rounded-full border-2 border-slate-800 shadow-md hover:scale-105 transition-transform animate-bounce z-20 whitespace-nowrap">👁️ 看看作品</button>
+                                    {hasMedia && (
+                                        <button onClick={() => setShowcaseGroup(groupId)} className="absolute -top-4 right-1 bg-indigo-600 text-white font-bold px-2.5 py-1 text-xs md:text-sm rounded-full border-2 border-slate-800 shadow-md hover:scale-105 transition-transform animate-bounce z-30 whitespace-nowrap">👁️ 看看作品</button>
                                     )}
 
                                     <h3 className={`text-lg md:text-2xl font-extrabold py-1 px-2 hand-drawn w-full text-center transition-colors duration-500 shrink-0 ${isAllComplete ? 'bg-yellow-200 text-yellow-900 border-yellow-600' : 'bg-slate-100 text-slate-800'}`}>第 {groupId} 組</h3>
@@ -461,9 +482,10 @@
                         })}
                     </div>
 
-                    {showcaseGroup && media[showcaseGroup] && (() => {
-                        const rawPhotoUrl = media[showcaseGroup].photo;
-                        const rawAudioUrl = media[showcaseGroup].audio;
+                    {showcaseGroup && (media[showcaseGroup] || media[String(showcaseGroup)]) && (() => {
+                        const grpM = media[showcaseGroup] || media[String(showcaseGroup)] || {};
+                        const rawPhotoUrl = grpM.photo || grpM.image;
+                        const rawAudioUrl = grpM.audio;
                         
                         const photoId = getFileId(rawPhotoUrl);
                         const audioId = getFileId(rawAudioUrl);
@@ -497,12 +519,17 @@
                                     {rawAudioUrl && (
                                         <div className="w-full bg-blue-50 p-8 rounded-2xl hand-drawn flex flex-col items-center gap-6">
                                             <h3 className="text-3xl font-bold text-blue-800">🗣️ 聽聽看他們的話</h3>
-                                            <audio src={renderAudioUrl} controls autoPlay={false} className="w-full max-w-2xl">
+                                            <audio src={renderAudioUrl} preload="metadata" controls autoPlay={false} className="w-full max-w-2xl">
                                                 您的瀏覽器不支援播放聲音檔。
                                             </audio>
-                                            <a href={viewAudioUrl} target="_blank" className="hand-drawn-btn bg-indigo-400 hover:bg-indigo-500 text-white font-bold px-8 py-3 rounded-full text-xl flex items-center gap-2">
-                                                🎵 另開視窗播放聲音
-                                            </a>
+                                            <div className="flex flex-wrap justify-center gap-4">
+                                                <a href={renderAudioUrl} target="_blank" rel="noopener noreferrer" className="hand-drawn-btn bg-emerald-400 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-full text-lg flex items-center gap-2">
+                                                    🔊 直接串流／下載播放
+                                                </a>
+                                                <a href={viewAudioUrl} target="_blank" rel="noopener noreferrer" className="hand-drawn-btn bg-indigo-400 hover:bg-indigo-500 text-white font-bold px-6 py-3 rounded-full text-lg flex items-center gap-2">
+                                                    🎵 開啟雲端硬碟預覽頁
+                                                </a>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
