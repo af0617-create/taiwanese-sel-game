@@ -20,7 +20,7 @@
     <div id="root" class="w-full max-w-4xl"></div>
 
     <script type="text/babel">
-        const { useState, useRef } = React;
+        const { useState, useRef, useEffect } = React;
 
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzIdOwg3RByzsO3OqPfrtPEfDlGN_VRIbIciixM1mEoQlzvvT89-zNF_kKeY4WYWINzcg/exec";
 
@@ -45,7 +45,8 @@
             "莫鬱卒啦！咱永遠是好朋友！"
         ];
 
-        // 輔助函式：錄音檔轉 Base64
+        const STORAGE_KEY = "ayong_sel_game_state_v1";
+
         const blobToBase64 = (blob) => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -55,7 +56,6 @@
             });
         };
 
-        // 🌟 圖片壓縮功能
         const compressImage = (file, maxWidth = 1000, quality = 0.7) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -67,17 +67,14 @@
                         const canvas = document.createElement('canvas');
                         let width = img.width;
                         let height = img.height;
-                        
                         if (width > maxWidth) {
                             height = Math.round((height * maxWidth) / width);
                             width = maxWidth;
                         }
-                        
                         canvas.width = width;
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        
                         const dataUrl = canvas.toDataURL('image/jpeg', quality);
                         resolve(dataUrl.split(',')[1]); 
                     };
@@ -85,7 +82,6 @@
             });
         };
 
-        // 🚀 通用：通知後台純文字過關
         const notifyStageComplete = async (stageNum, groupNum) => {
             try {
                 await fetch(GAS_URL, {
@@ -97,45 +93,132 @@
             }
         };
 
-        function App() {
-            const [group, setGroup] = useState(null);
-            const [stage, setStage] = useState(0); 
+        const shuffleWordsSafely = (words) => {
+            let arr = [...words];
+            if (arr.length <= 1) return arr;
+            do {
+                arr.sort(() => Math.random() - 0.5);
+            } while (arr.join("") === words.join(""));
+            return arr;
+        };
 
-            const [selEmotion, setSelEmotion] = useState(null);
-            const [selMetaphor, setSelMetaphor] = useState(null);
+        const loadSavedState = () => {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                return null;
+            }
+        };
+
+        function App() {
+            const saved = loadSavedState();
+
+            const [group, setGroup] = useState(saved?.group ?? null);
+            const [stage, setStage] = useState(saved?.stage ?? 0); 
+            const [maxUnlockedStage, setMaxUnlockedStage] = useState(saved?.maxUnlockedStage ?? 1);
+
+            const [stage1Passed, setStage1Passed] = useState(saved?.stage1Passed ?? false);
+            const [stage2Passed, setStage2Passed] = useState(saved?.stage2Passed ?? false);
+
+            const [selEmotion, setSelEmotion] = useState(saved?.selEmotion ?? null);
+            const [selMetaphor, setSelMetaphor] = useState(saved?.selMetaphor ?? null);
 
             const [photoUrl, setPhotoUrl] = useState(null);
             const [photoFile, setPhotoFile] = useState(null); 
             const [isUploading, setIsUploading] = useState(false);
 
-            const [shuffledWords, setShuffledWords] = useState([]);
-            const [selectedWords, setSelectedWords] = useState([]);
+            const [shuffledWords, setShuffledWords] = useState(() => {
+                if (saved?.shuffledWords && saved.shuffledWords.length > 0) return saved.shuffledWords;
+                if (saved?.group && CASES[saved.group]) return shuffleWordsSafely(CASES[saved.group].words);
+                return [];
+            });
+            const [selectedWords, setSelectedWords] = useState(saved?.selectedWords ?? []);
 
-            const [selSentence, setSelSentence] = useState(null);
+            const [selSentence, setSelSentence] = useState(saved?.selSentence ?? null);
             const [isRecording, setIsRecording] = useState(false);
             const [audioUrl, setAudioUrl] = useState(null);
             const [audioBlob, setAudioBlob] = useState(null); 
             const mediaRecorder = useRef(null);
             const audioChunks = useRef([]);
 
+            useEffect(() => {
+                try {
+                    const stateToSave = {
+                        group,
+                        stage,
+                        maxUnlockedStage,
+                        stage1Passed,
+                        stage2Passed,
+                        selEmotion,
+                        selMetaphor,
+                        shuffledWords,
+                        selectedWords,
+                        selSentence
+                    };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+                } catch (e) {
+                    console.error("進度暫存失敗", e);
+                }
+            }, [group, stage, maxUnlockedStage, stage1Passed, stage2Passed, selEmotion, selMetaphor, shuffledWords, selectedWords, selSentence]);
+
             const startGame = (g) => {
                 setGroup(g);
                 setStage(1);
-                const words = [...CASES[g].words].sort(() => Math.random() - 0.5);
-                setShuffledWords(words);
+                setMaxUnlockedStage(1);
+                setStage1Passed(false);
+                setStage2Passed(false);
+                setSelEmotion(null);
+                setSelMetaphor(null);
+                setSelectedWords([]);
+                setShuffledWords(shuffleWordsSafely(CASES[g].words));
+                setSelSentence(null);
+                setPhotoUrl(null);
+                setPhotoFile(null);
+                setAudioUrl(null);
+                setAudioBlob(null);
+            };
+
+            const resetAllGame = () => {
+                if (confirm("確定要重新選擇組別，從頭開始嗎？")) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    setGroup(null);
+                    setStage(0);
+                    setMaxUnlockedStage(1);
+                    setStage1Passed(false);
+                    setStage2Passed(false);
+                    setSelEmotion(null);
+                    setSelMetaphor(null);
+                    setSelectedWords([]);
+                    setShuffledWords([]);
+                    setSelSentence(null);
+                    setPhotoUrl(null);
+                    setPhotoFile(null);
+                    setAudioUrl(null);
+                    setAudioBlob(null);
+                }
+            };
+
+            const goToStage = (targetStage) => {
+                if (targetStage >= 1 && targetStage <= maxUnlockedStage) {
+                    setStage(targetStage);
+                }
             };
 
             const checkStage1 = () => {
                 if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
-                    alert("著啦！進入第二關！");
-                    notifyStageComplete(1, group);
-                    setStage(2);
+                    if (!stage1Passed) {
+                        notifyStageComplete(1, group);
+                    }
+                    setStage1Passed(true);
+                    setMaxUnlockedStage(prev => Math.max(prev, 2));
                 } else {
                     alert("選擇好像不太對喔，再討論看看！");
                 }
             };
 
             const handleWordClick = (word, isSelected, index) => {
+                if (stage2Passed) return;
                 if (isSelected) {
                     setSelectedWords(prev => prev.filter((_, i) => i !== index));
                     setShuffledWords(prev => [...prev, word]);
@@ -147,12 +230,14 @@
 
             const checkStage2 = () => {
                 if (selectedWords.join("") === CASES[group].words.join("")) {
-                    alert("句型重組完全正確！進入第三關！");
-                    notifyStageComplete(2, group);
-                    setStage(3);
+                    if (!stage2Passed) {
+                        notifyStageComplete(2, group);
+                    }
+                    setStage2Passed(true);
+                    setMaxUnlockedStage(prev => Math.max(prev, 3));
                 } else {
                     alert("順序怪怪的喔，請再排一次看看！");
-                    setShuffledWords([...CASES[group].words].sort(() => Math.random() - 0.5));
+                    setShuffledWords(shuffleWordsSafely(CASES[group].words));
                     setSelectedWords([]);
                 }
             };
@@ -170,7 +255,6 @@
                 setIsUploading(true);
                 try {
                     const compressedBase64 = await compressImage(photoFile);
-                    
                     const payload = {
                         action: 'upload', 
                         stage: 3,
@@ -178,14 +262,13 @@
                         mimeType: 'image/jpeg',
                         fileBase64: compressedBase64
                     };
-                    
                     const res = await fetch(GAS_URL, {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
                     const result = await res.json();
-                    
                     if(result.status === 'success') {
+                        setMaxUnlockedStage(prev => Math.max(prev, 4));
                         setStage(4);
                     } else {
                         alert("上傳失敗：" + result.message);
@@ -209,6 +292,7 @@
                         setAudioBlob(blob);
                         setAudioUrl(URL.createObjectURL(blob));
                         audioChunks.current = [];
+                        stream.getTracks().forEach(track => track.stop());
                     };
                     audioChunks.current = [];
                     mediaRecorder.current.start();
@@ -237,14 +321,13 @@
                         mimeType: audioBlob.type,
                         fileBase64: base64
                     };
-                    
                     const res = await fetch(GAS_URL, {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
                     const result = await res.json();
-                    
                     if(result.status === 'success') {
+                        localStorage.removeItem(STORAGE_KEY);
                         setStage(5);
                     } else {
                         alert("上傳失敗：" + result.message);
@@ -278,15 +361,55 @@
                         <h1 className="text-5xl font-bold mb-6 text-red-500">🎉 任務完成！</h1>
                         <p className="text-2xl mb-8">請看前面大螢幕的發光罐！</p>
                         <div className="text-8xl mt-4 animate-bounce">🌟🧡🌟</div>
+                        <button onClick={resetAllGame} className="mt-10 hand-drawn-btn bg-gray-200 hover:bg-gray-300 px-6 py-3 text-lg font-bold">
+                            回到組別選擇
+                        </button>
                     </div>
                 );
             }
 
             return (
                 <div className="bg-white p-6 md:p-10 hand-drawn w-full max-w-4xl mx-auto shadow-lg">
-                    <div className="flex justify-between items-center mb-6 border-b-4 border-dashed border-gray-300 pb-4">
-                        <h2 className="text-3xl font-bold text-blue-700">組別 {group} - 第 {stage} 關</h2>
+                    <div className="flex flex-wrap justify-between items-center gap-3 mb-6 border-b-4 border-dashed border-gray-300 pb-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <h2 className="text-2xl md:text-3xl font-bold text-blue-700">第 {group} 組 - 第 {stage} 關</h2>
+                            <div className="flex items-center gap-1.5">
+                                {[1, 2, 3, 4].map(sNum => {
+                                    const unlocked = sNum <= maxUnlockedStage;
+                                    const isCurrent = sNum === stage;
+                                    return (
+                                        <button
+                                            key={sNum}
+                                            disabled={!unlocked}
+                                            onClick={() => goToStage(sNum)}
+                                            className={`px-3 py-1 rounded-full text-sm md:text-base font-bold border-2 border-gray-800 transition ${
+                                                isCurrent
+                                                    ? 'bg-orange-400 text-white'
+                                                    : unlocked
+                                                        ? 'bg-green-200 hover:bg-green-300 text-gray-900 cursor-pointer'
+                                                        : 'bg-gray-100 text-gray-400 border-gray-300 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            第{sNum}關
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={resetAllGame}
+                            className="text-sm md:text-base px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-400 font-bold text-gray-700"
+                        >
+                            換組別
+                        </button>
                     </div>
+
+                    {stage === 3 && selEmotion && selMetaphor && (
+                        <div className="mb-5 bg-amber-100 border-2 border-amber-400 px-4 py-2 rounded-xl text-base md:text-lg font-bold text-amber-900 inline-block">
+                            📌 本組密碼：【{selEmotion}】｜【{selMetaphor}】
+                        </div>
+                    )}
 
                     {stage === 1 && (
                         <div>
@@ -298,7 +421,14 @@
                                     <h4 className="text-center font-bold text-2xl mb-6 text-yellow-800">選擇情緒</h4>
                                     <div className="grid grid-cols-2 gap-4">
                                         {EMOTIONS.map(e => (
-                                            <button key={e} onClick={() => setSelEmotion(e)} className={`hand-drawn-btn p-4 text-xl font-bold ${selEmotion === e ? 'bg-yellow-500 text-white' : 'bg-white'}`}>{e}</button>
+                                            <button 
+                                                key={e} 
+                                                disabled={stage1Passed}
+                                                onClick={() => setSelEmotion(e)} 
+                                                className={`hand-drawn-btn p-4 text-xl font-bold ${selEmotion === e ? 'bg-yellow-500 text-white' : 'bg-white'}`}
+                                            >
+                                                {e}
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
@@ -306,45 +436,103 @@
                                     <h4 className="text-center font-bold text-2xl mb-6 text-blue-800">選擇比喻</h4>
                                     <div className="grid grid-cols-2 gap-4">
                                         {METAPHORS.map(m => (
-                                            <button key={m} onClick={() => setSelMetaphor(m)} className={`hand-drawn-btn p-4 text-xl font-bold ${selMetaphor === m ? 'bg-blue-500 text-white' : 'bg-white'}`}>{m}</button>
+                                            <button 
+                                                key={m} 
+                                                disabled={stage1Passed}
+                                                onClick={() => setSelMetaphor(m)} 
+                                                className={`hand-drawn-btn p-4 text-xl font-bold ${selMetaphor === m ? 'bg-blue-500 text-white' : 'bg-white'}`}
+                                            >
+                                                {m}
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
                             </div>
-                            {selEmotion && selMetaphor && (
+
+                            {!stage1Passed && selEmotion && selMetaphor && (
                                 <button onClick={checkStage1} className="mt-10 w-full hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold text-white tracking-widest">
                                     送出答案
                                 </button>
+                            )}
+
+                            {stage1Passed && (
+                                <div className="mt-8 p-6 bg-green-50 border-4 border-green-500 rounded-2xl text-center shadow-md">
+                                    <p className="text-2xl font-bold text-green-700 mb-3">✅ 著啦！請 1 號同學共答案抄佇學習單頂懸：</p>
+                                    <div className="bg-white border-2 border-green-300 rounded-xl p-4 mb-6 text-2xl md:text-3xl font-bold text-gray-800 flex flex-wrap justify-center gap-6">
+                                        <span>心情：<span className="text-orange-600 underline decoration-4">{selEmotion}</span></span>
+                                        <span>比喻：<span className="text-blue-600 underline decoration-4">{selMetaphor}</span></span>
+                                    </div>
+                                    <button 
+                                        onClick={() => setStage(2)} 
+                                        className="w-full hand-drawn-btn bg-blue-500 hover:bg-blue-600 p-5 text-2xl md:text-3xl font-bold text-white tracking-wider"
+                                    >
+                                        抄好矣！前往第二關 ➔
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}
 
                     {stage === 2 && (
                         <div className="text-center">
-                            <h3 className="text-3xl font-bold mb-8">請點擊下方字塊，依序排到上方！</h3>
-                            <div className="min-h-[120px] bg-gray-50 border-4 border-dashed border-gray-400 p-6 mb-8 rounded-2xl flex flex-wrap gap-3 justify-center items-center shadow-inner">
+                            <h3 className="text-3xl font-bold mb-8">
+                                {stage2Passed ? "✅ 句型重組完全正確！" : "請點擊下方字塊，依序排到上方！"}
+                            </h3>
+                            <div className={`min-h-[120px] p-6 mb-8 rounded-2xl flex flex-wrap gap-3 justify-center items-center shadow-inner border-4 ${stage2Passed ? 'bg-green-50 border-green-500' : 'bg-gray-50 border-dashed border-gray-400'}`}>
                                 {selectedWords.length === 0 && <span className="text-gray-400 text-xl">請點擊下方字塊排入</span>}
                                 {selectedWords.map((word, idx) => (
-                                    <button key={idx} onClick={() => handleWordClick(word, true, idx)} className="hand-drawn-btn bg-orange-300 px-6 py-3 text-2xl font-bold">{word}</button>
+                                    <button 
+                                        key={idx} 
+                                        disabled={stage2Passed}
+                                        onClick={() => handleWordClick(word, true, idx)} 
+                                        className={`hand-drawn-btn px-6 py-3 text-2xl md:text-3xl font-bold ${stage2Passed ? 'bg-amber-200 border-amber-600' : 'bg-orange-300'}`}
+                                    >
+                                        {word}
+                                    </button>
                                 ))}
                             </div>
-                            <div className="flex flex-wrap gap-4 justify-center mb-10 p-6 bg-blue-50 rounded-2xl hand-drawn border-2">
-                                {shuffledWords.map((word, idx) => (
-                                    <button key={idx} onClick={() => handleWordClick(word, false, idx)} className="hand-drawn-btn bg-blue-200 hover:bg-blue-300 px-6 py-3 text-2xl font-bold">{word}</button>
-                                ))}
-                            </div>
-                            {selectedWords.length === CASES[group].words.length && (
+
+                            {!stage2Passed && (
+                                <div className="flex flex-wrap gap-4 justify-center mb-10 p-6 bg-blue-50 rounded-2xl hand-drawn border-2">
+                                    {shuffledWords.map((word, idx) => (
+                                        <button key={idx} onClick={() => handleWordClick(word, false, idx)} className="hand-drawn-btn bg-blue-200 hover:bg-blue-300 px-6 py-3 text-2xl font-bold">{word}</button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {!stage2Passed && selectedWords.length === CASES[group].words.length && (
                                 <button onClick={checkStage2} className="hand-drawn-btn bg-green-400 hover:bg-green-500 p-6 text-3xl font-bold w-full text-white tracking-widest">
                                     檢查順序
                                 </button>
                             )}
+
+                            {stage2Passed && (
+                                <div className="mt-6 p-6 bg-green-50 border-4 border-green-500 rounded-2xl text-center shadow-md">
+                                    <p className="text-xl font-bold text-green-700 mb-2">📌 完整通關句子（確認好再進入下一關）：</p>
+                                    <p className="text-2xl md:text-3xl font-bold text-blue-900 bg-white border-2 border-green-300 rounded-xl p-4 mb-6">
+                                        {selectedWords.join("")}
+                                    </p>
+                                    <button 
+                                        onClick={() => setStage(3)} 
+                                        className="w-full hand-drawn-btn bg-blue-500 hover:bg-blue-600 p-5 text-2xl md:text-3xl font-bold text-white tracking-wider"
+                                    >
+                                        好矣！前往第三關（解憂法寶） ➔
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className="mt-6 text-left">
+                                <button onClick={() => goToStage(1)} className="text-blue-700 underline font-bold text-lg">
+                                    ← 回到第一關看答案
+                                </button>
+                            </div>
                         </div>
                     )}
 
                     {stage === 3 && (
                         <div className="text-center">
                             <h3 className="text-3xl font-bold mb-4">請小組討論欲用佗一个法寶？</h3>
-                            <p className="mb-6 text-xl text-gray-700">請 2 號寫佇實體配方內底，寫好才翕相傳來！</p>
+                            <p className="mb-6 text-xl text-gray-700">請 3 號寫佇實體配方內底，寫好才翕相傳來！</p>
                             <div className="my-10">
                                 <label className="hand-drawn-btn bg-pink-300 hover:bg-pink-400 p-8 text-3xl font-bold cursor-pointer inline-block shadow-lg">
                                     📸 點擊選擇照片或拍照
@@ -359,6 +547,17 @@
                                     </button>
                                 </div>
                             )}
+
+                            <div className="mt-8 flex justify-between items-center text-lg font-bold">
+                                <button onClick={() => goToStage(2)} className="text-blue-700 underline">
+                                    ← 回到第二關
+                                </button>
+                                {maxUnlockedStage >= 4 && (
+                                    <button onClick={() => goToStage(4)} className="text-green-700 underline">
+                                        前往第四關 →
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -374,10 +573,15 @@
                                             </button>
                                         ))}
                                     </div>
+                                    <div className="mt-8 text-left">
+                                        <button onClick={() => goToStage(3)} className="text-blue-700 underline font-bold text-lg">
+                                            ← 回到第三關
+                                        </button>
+                                    </div>
                                 </>
                             ) : (
                                 <>
-                                    <button onClick={() => setSelSentence(null)} className="text-blue-600 underline mb-6 text-left w-full text-lg font-bold">← 重新選擇</button>
+                                    <button onClick={() => setSelSentence(null)} className="text-blue-600 underline mb-6 text-left w-full text-lg font-bold">← 重新選擇金句</button>
                                     <div className="bg-blue-100 p-10 hand-drawn text-4xl font-bold mb-10 leading-relaxed text-blue-900 shadow-sm">
                                         {selSentence}
                                     </div>
