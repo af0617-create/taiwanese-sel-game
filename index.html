@@ -56,37 +56,67 @@
             });
         };
 
-        const compressImage = (file, maxWidth = 1000, quality = 0.7) => {
-            return new Promise((resolve) => {
+        // 圖片極速壓縮（640px / 0.55 畫質，兼顧學習單字跡清晰度與教室 Wi-Fi 秒傳速度）
+        const compressImage = (file, maxWidth = 640, quality = 0.55) => {
+            return new Promise((resolve, reject) => {
                 const reader = new FileReader();
+                reader.onerror = () => reject(new Error("讀取照片失敗"));
                 reader.readAsDataURL(file);
                 reader.onload = (event) => {
                     const img = new Image();
+                    img.onerror = () => {
+                        // 若瀏覽器無法轉繪 Canvas，直接回傳原圖 Base64
+                        const raw = event.target.result || "";
+                        resolve(raw.includes(',') ? raw.split(',')[1] : raw);
+                    };
                     img.src = event.target.result;
                     img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        let width = img.width;
-                        let height = img.height;
-                        if (width > maxWidth) {
-                            height = Math.round((height * maxWidth) / width);
-                            width = maxWidth;
+                        try {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+                            if (width > maxWidth) {
+                                height = Math.round((height * maxWidth) / width);
+                                width = maxWidth;
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                            resolve(dataUrl.split(',')[1]);
+                        } catch (err) {
+                            const raw = event.target.result || "";
+                            resolve(raw.includes(',') ? raw.split(',')[1] : raw);
                         }
-                        canvas.width = width;
-                        canvas.height = height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, width, height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        resolve(dataUrl.split(',')[1]); 
                     };
                 };
             });
         };
 
+        const postToGAS = async (payload) => {
+            const res = await fetch(GAS_URL, {
+                method: 'POST',
+                redirect: 'follow',
+                headers: {
+                    'Content-Type': 'text/plain;charset=utf-8'
+                },
+                body: JSON.stringify(payload)
+            });
+            const text = await res.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return { status: res.ok ? 'success' : 'error', raw: text };
+            }
+        };
+
         const notifyStageComplete = async (stageNum, groupNum) => {
             try {
-                await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'stage_complete', stage: stageNum, group: groupNum })
+                await postToGAS({
+                    action: 'stage_complete',
+                    stage: Number(stageNum),
+                    group: Number(groupNum)
                 });
             } catch (e) {
                 console.error("進度上傳失敗", e);
@@ -114,7 +144,7 @@
         function App() {
             const saved = loadSavedState();
 
-            const [group, setGroup] = useState(saved?.group ?? null);
+            const [group, setGroup] = useState(saved?.group ? Number(saved.group) : null);
             const [stage, setStage] = useState(saved?.stage ?? 0); 
             const [maxUnlockedStage, setMaxUnlockedStage] = useState(saved?.maxUnlockedStage ?? 1);
 
@@ -163,7 +193,8 @@
             }, [group, stage, maxUnlockedStage, stage1Passed, stage2Passed, selEmotion, selMetaphor, shuffledWords, selectedWords, selSentence]);
 
             const startGame = (g) => {
-                setGroup(g);
+                const gNum = Number(g);
+                setGroup(gNum);
                 setStage(1);
                 setMaxUnlockedStage(1);
                 setStage1Passed(false);
@@ -171,7 +202,7 @@
                 setSelEmotion(null);
                 setSelMetaphor(null);
                 setSelectedWords([]);
-                setShuffledWords(shuffleWordsSafely(CASES[g].words));
+                setShuffledWords(shuffleWordsSafely(CASES[gNum].words));
                 setSelSentence(null);
                 setPhotoUrl(null);
                 setPhotoFile(null);
@@ -207,9 +238,7 @@
 
             const checkStage1 = () => {
                 if (selEmotion === CASES[group].ansEmotion && selMetaphor === CASES[group].ansMetaphor) {
-                    if (!stage1Passed) {
-                        notifyStageComplete(1, group);
-                    }
+                    notifyStageComplete(1, group);
                     setStage1Passed(true);
                     setMaxUnlockedStage(prev => Math.max(prev, 2));
                 } else {
@@ -230,9 +259,7 @@
 
             const checkStage2 = () => {
                 if (selectedWords.join("") === CASES[group].words.join("")) {
-                    if (!stage2Passed) {
-                        notifyStageComplete(2, group);
-                    }
+                    notifyStageComplete(2, group);
                     setStage2Passed(true);
                     setMaxUnlockedStage(prev => Math.max(prev, 3));
                 } else {
@@ -258,20 +285,20 @@
                     const payload = {
                         action: 'upload', 
                         stage: 3,
-                        group: group,
+                        group: Number(group),
                         mimeType: 'image/jpeg',
                         fileBase64: compressedBase64
                     };
-                    const res = await fetch(GAS_URL, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    const result = await res.json();
-                    if(result.status === 'success') {
+                    // 平行送出照片上傳與亮燈通知，省去一次 GAS 來回等待時間
+                    const [result] = await Promise.all([
+                        postToGAS(payload),
+                        notifyStageComplete(3, group)
+                    ]);
+                    if (result.status === 'success') {
                         setMaxUnlockedStage(prev => Math.max(prev, 4));
                         setStage(4);
                     } else {
-                        alert("上傳失敗：" + result.message);
+                        alert("上傳失敗：" + (result.message || "請重試一次"));
                     }
                 } catch(error) {
                     alert("連線發生錯誤，請稍後再試！");
@@ -317,20 +344,18 @@
                     const payload = {
                         action: 'upload', 
                         stage: 4,
-                        group: group,
-                        mimeType: audioBlob.type,
+                        group: Number(group),
+                        mimeType: audioBlob.type || 'audio/webm',
                         fileBase64: base64
                     };
-                    const res = await fetch(GAS_URL, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    const result = await res.json();
-                    if(result.status === 'success') {
+                    const result = await postToGAS(payload);
+                    if (result.status === 'success') {
+                        // 雙重保險：確保後台第 4 關燈號也確實點亮
+                        await notifyStageComplete(4, group);
                         localStorage.removeItem(STORAGE_KEY);
                         setStage(5);
                     } else {
-                        alert("上傳失敗：" + result.message);
+                        alert("上傳失敗：" + (result.message || "請重試一次"));
                     }
                 } catch(error) {
                     alert("連線發生錯誤，請稍後再試！");
